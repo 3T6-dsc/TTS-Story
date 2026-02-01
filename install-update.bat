@@ -3,7 +3,7 @@ setlocal EnableExtensions EnableDelayedExpansion
 
 set "REPO_URL=https://github.com/Xerophayze/TTS-Story.git"
 set "REPO_DIR=TTS-Story"
-set "GIT_INSTALLER_URL=https://github.com/git-for-windows/git/releases/latest/download/Git-2.44.0-64-bit.exe"
+set "GIT_INSTALLER_URL=https://github.com/git-for-windows/git/releases/latest/download/Git-64-bit.exe"
 set "GIT_INSTALLER=%TEMP%\git-installer.exe"
 
 echo ========================================
