@@ -108,13 +108,22 @@ REM Install other dependencies (excluding torch + chatterbox runtime handled sep
 echo.
 echo [6/10] Installing other Python dependencies...
 findstr /v /i "torch" requirements.txt > temp_requirements.txt
-pip install -r temp_requirements.txt
+findstr /v /i "pyopenjtalk" temp_requirements.txt > temp_requirements_filtered.txt
+del temp_requirements.txt
+pip install -r temp_requirements_filtered.txt
 if errorlevel 1 (
     echo ERROR: Failed to install dependencies
     pause
     exit /b 1
 )
-del temp_requirements.txt
+del temp_requirements_filtered.txt
+
+echo.
+echo Installing optional pyopenjtalk (Japanese text support)...
+pip install pyopenjtalk
+if errorlevel 1 (
+    echo WARNING: pyopenjtalk failed to install. Japanese TTS features will be unavailable.
+)
 
 REM Install local Chatterbox runtime
 echo.
