@@ -3046,26 +3046,30 @@ function syncFullStoryOption(chapterCheckbox, force = false) {
 
 // Engine display name mapping
 const engineDisplayNames = {
-    'kokoro': 'Kokoro · Local GPU',
+    'kokoro': 'Kokoro · Local',
     'kokoro_replicate': 'Kokoro · Replicate',
-    'chatterbox_turbo_local': 'Chatterbox · Local GPU',
+    'chatterbox_turbo_local': 'Chatterbox · Local',
     'chatterbox_turbo_replicate': 'Chatterbox · Replicate',
-    'voxcpm_local': 'VoxCPM 1.5 · Local GPU',
+    'voxcpm_local': 'VoxCPM 1.5 · Local',
     'qwen3_custom': 'Qwen3-TTS · Custom Voice',
     'qwen3_clone': 'Qwen3-TTS · Voice Clone'
 };
 
 // Update mode indicator based on engine name (called when dropdown changes)
-function updateModeIndicator(engineName) {
+function updateModeIndicator(engineName, computeMode) {
     const modeEl = document.getElementById('current-mode');
     if (!modeEl) return;
-    
+
     const normalizedEngine = (engineName || 'kokoro').toLowerCase();
-    const isLocal = ['kokoro', 'chatterbox_turbo_local', 'voxcpm_local', 'qwen3_custom', 'qwen3_clone']
-        .includes(normalizedEngine);
-    
-    modeEl.textContent = engineDisplayNames[normalizedEngine] || normalizedEngine;
-    modeEl.style.color = isLocal ? '#10b981' : '#f59e0b';
+    const normalizedMode = (computeMode || '').toLowerCase();
+    const label = normalizedMode === 'gpu'
+        ? 'GPU Mode'
+        : normalizedMode === 'cpu'
+            ? 'CPU Mode'
+            : 'Auto';
+
+    modeEl.textContent = label;
+    modeEl.style.color = normalizedMode === 'gpu' ? '#22c55e' : '#38bdf8';
 }
 
 // Load health status
@@ -3076,7 +3080,7 @@ async function loadHealthStatus() {
         
         if (data.success) {
             const engineName = data.tts_engine || 'kokoro';
-            updateModeIndicator(engineName);
+            updateModeIndicator(engineName, data.compute_mode);
             document.getElementById('cuda-status').textContent = 
                 data.cuda_available ? 'Available' : 'Not Available';
         }

@@ -13,7 +13,7 @@
             <h1>🎭 TTS-Story</h1>
             <p>Multi-Voice Text-to-Speech for Stories and Audiobooks</p>
             <div class="status-bar">
-                <span id="mode-indicator">Mode: <strong id="current-mode">Loading...</strong></span>
+                <span id="mode-indicator">Compute: <strong id="current-mode">Loading...</strong></span>
                 <span id="cuda-indicator">CUDA: <strong id="cuda-status">Checking...</strong></span>
             </div>
 
@@ -185,11 +185,11 @@
                                         <div class="form-group">
                                             <label for="job-tts-engine">Engine</label>
                                             <select id="job-tts-engine">
-                                                <option value="kokoro">Kokoro · Local GPU</option>
+                                                <option value="kokoro">Kokoro · Local</option>
                                                 <option value="kokoro_replicate">Kokoro · Replicate</option>
-                                                <option value="chatterbox_turbo_local">Chatterbox · Local GPU</option>
+                                                <option value="chatterbox_turbo_local">Chatterbox · Local</option>
                                                 <option value="chatterbox_turbo_replicate">Chatterbox · Replicate</option>
-                                                <option value="voxcpm_local">VoxCPM 1.5 · Local GPU</option>
+                                                <option value="voxcpm_local">VoxCPM 1.5 · Local</option>
                                                 <option value="qwen3_custom">Qwen3-TTS · Custom Voice</option>
                                                 <option value="qwen3_clone">Qwen3-TTS · Voice Clone</option>
                                             </select>
@@ -589,14 +589,23 @@
                             <div class="form-group">
                                 <label for="settings-tts-engine">Default Engine</label>
                                 <select id="settings-tts-engine">
-                                    <option value="kokoro">Kokoro · Local GPU</option>
+                                    <option value="kokoro">Kokoro · Local</option>
                                     <option value="kokoro_replicate">Kokoro · Replicate</option>
-                                    <option value="chatterbox_turbo_local">Chatterbox · Local GPU</option>
+                                    <option value="chatterbox_turbo_local">Chatterbox · Local</option>
                                     <option value="chatterbox_turbo_replicate">Chatterbox · Replicate</option>
-                                    <option value="voxcpm_local">VoxCPM 1.5 · Local GPU</option>
+                                    <option value="voxcpm_local">VoxCPM 1.5 · Local</option>
                                     <option value="qwen3_custom">Qwen3-TTS · Custom Voice</option>
                                     <option value="qwen3_clone">Qwen3-TTS · Voice Clone</option>
                                 </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="settings-compute-mode">Compute Mode</label>
+                                <select id="settings-compute-mode">
+                                    <option value="auto">Auto (match hardware)</option>
+                                    <option value="gpu">GPU</option>
+                                    <option value="cpu">CPU</option>
+                                </select>
+                                <small id="settings-compute-mode-status" class="help-text"></small>
                             </div>
                             <div class="form-group">
                                 <label for="settings-output-format">File Format</label>
@@ -657,7 +666,7 @@
                                 <h4>Chatterbox Local</h4>
                                 <button type="button" class="help-icon" data-help-id="engine-chatterbox-local" aria-label="Help: Chatterbox Local">?</button>
                             </div>
-                            <p class="help-text" style="margin-top:0;">Local Chatterbox Turbo. Requires CUDA GPU with ~8GB VRAM.</p>
+                            <p class="help-text" style="margin-top:0;">Local Chatterbox Turbo running on your machine. GPU recommended for faster generation.</p>
                             <div class="settings-form-grid">
                                 <div class="form-group">
                                     <label for="chatterbox-turbo-local-device">Device</label>

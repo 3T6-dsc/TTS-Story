@@ -19,6 +19,7 @@ import re
 import shutil
 import stat
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -136,6 +137,8 @@ DEFAULT_CONFIG = {
     "llm_local_api_key": "",
     "llm_local_timeout": 120,
     "tts_engine": "kokoro",
+    "compute_mode": "auto",
+    "device": "auto",
     "chatterbox_turbo_local_default_prompt": "",
     "chatterbox_turbo_local_temperature": 0.8,
     "chatterbox_turbo_local_top_p": 0.95,
@@ -180,6 +183,11 @@ DEFAULT_CONFIG = {
     "group_chunks_by_speaker": False,
     "cleanup_vram_after_job": False,
 }
+
+TORCH_CPU_INDEX_URL = "https://download.pytorch.org/whl/cpu"
+TORCH_GPU_INDEX_URL = "https://download.pytorch.org/whl/cu121"
+_torch_install_lock = threading.Lock()
+_torch_install_state = {"in_progress": False, "mode": None, "error": None}
 
 CHATTERBOX_TURBO_LOCAL_SETTING_KEYS = {
     "chatterbox_turbo_local_default_prompt",
@@ -1053,6 +1061,84 @@ def _resolve_qwen_attn(attn_value: Optional[str]) -> Optional[str]:
             return "eager"
         return "flash_attention_2"
     return normalized
+
+
+def _torch_variant() -> Optional[str]:
+    try:
+        import torch
+    except Exception:  # pragma: no cover - optional dependency
+        return None
+    return "gpu" if getattr(torch.version, "cuda", None) else "cpu"
+
+
+def _should_install_torch(mode: str) -> bool:
+    current = _torch_variant()
+    if mode not in {"cpu", "gpu"}:
+        return False
+    return current != mode
+
+
+def _install_torch_variant(mode: str) -> None:
+    index_url = TORCH_GPU_INDEX_URL if mode == "gpu" else TORCH_CPU_INDEX_URL
+    logger.info("Installing PyTorch %s build from %s", mode, index_url)
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "torch",
+            "torchvision",
+            "torchaudio",
+            "--index-url",
+            index_url,
+        ],
+        check=False,
+    )
+
+
+def _start_torch_install(mode: str) -> bool:
+    with _torch_install_lock:
+        if _torch_install_state["in_progress"]:
+            return False
+        _torch_install_state.update({"in_progress": True, "mode": mode, "error": None})
+
+    def _worker():
+        try:
+            _install_torch_variant(mode)
+        except Exception as exc:  # pragma: no cover - runtime installs
+            _torch_install_state["error"] = str(exc)
+            logger.warning("Torch install failed: %s", exc)
+        finally:
+            _torch_install_state["in_progress"] = False
+
+    threading.Thread(target=_worker, daemon=True).start()
+    return True
+
+
+def _apply_compute_mode(config: Dict[str, Any], mode: str) -> None:
+    if mode == "gpu":
+        device_value = "cuda"
+    elif mode == "cpu":
+        device_value = "cpu"
+    else:
+        return
+    config["device"] = device_value
+    config["chatterbox_turbo_local_device"] = device_value
+    config["voxcpm_local_device"] = device_value
+    config["qwen3_custom_device"] = device_value
+    config["qwen3_clone_device"] = device_value
+
+
+def _effective_compute_mode(config: Dict[str, Any]) -> str:
+    desired = (config.get("compute_mode") or "auto").strip().lower()
+    if desired in {"cpu", "gpu"}:
+        return desired
+    try:
+        import torch
+        return "gpu" if torch.cuda.is_available() else "cpu"
+    except Exception:  # pragma: no cover - optional dependency
+        return "cpu"
 
 
 def _ensure_qwen3_model(model_id: str) -> Path:
@@ -2584,6 +2670,9 @@ def load_config():
                 config.update({k: v for k, v in data.items() if k in DEFAULT_CONFIG})
         except Exception as exc:
             logger.warning(f"Failed to load config.json, using defaults: {exc}")
+    compute_mode = (config.get("compute_mode") or "auto").strip().lower()
+    if compute_mode in {"cpu", "gpu"}:
+        _apply_compute_mode(config, compute_mode)
     return config
 
 
@@ -3533,11 +3622,19 @@ def settings():
             new_settings = request.json
             config = load_config()
             config.update(new_settings)
+            compute_mode = (config.get("compute_mode") or "auto").strip().lower()
+            if compute_mode in {"cpu", "gpu"}:
+                _apply_compute_mode(config, compute_mode)
+                if _should_install_torch(compute_mode):
+                    _start_torch_install(compute_mode)
             save_config(config)
             
             return jsonify({
                 "success": True,
-                "message": "Settings updated"
+                "message": "Settings updated",
+                "compute_mode": compute_mode,
+                "torch_install": _torch_install_state,
+                "torch_variant": _torch_variant(),
             })
         except Exception as e:
             logger.error(f"Error updating settings: {e}")
@@ -5340,6 +5437,9 @@ def health_check():
         "kokoro_available": KOKORO_AVAILABLE,
         "qwen3_available": QWEN3_AVAILABLE,
         "cuda_available": False if not KOKORO_AVAILABLE else __import__('torch').cuda.is_available(),
+        "compute_mode": _effective_compute_mode(config),
+        "torch_variant": _torch_variant(),
+        "torch_install": _torch_install_state,
         "vram": vram_info,
         "loaded_engines": list(tts_engine_instances.keys()),
     })
