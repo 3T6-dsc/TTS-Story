@@ -58,6 +58,10 @@ if errorlevel 1 (
     exit /b 1
 )
 
+echo ========================================
+echo           GPU SETUP QUESTION
+echo ========================================
+echo.
 set "GPU_DETECTED=0"
 where nvidia-smi >nul 2>&1
 if not errorlevel 1 (
@@ -73,7 +77,7 @@ if "!GPU_DETECTED!"=="1" (
 ) else (
     echo No NVIDIA GPU detected. CPU-only PyTorch is recommended.
 )
-
+echo.
 set "GPU_RESPONSE="
 set /p GPU_RESPONSE=Do you want to install GPU-enabled PyTorch? (y/n): 
 if /I "!GPU_RESPONSE!"=="y" goto :InstallTorchGPU
@@ -258,6 +262,26 @@ echo 3. Open browser to: http://localhost:5000
 echo.
 echo Need cloud processing? You can use Replicate with an API key (Kokoro/Chatterbox).
 echo Add your key in Settings after launch.
+echo.
+echo ========================================
+echo         CREATE DESKTOP SHORTCUT
+echo ========================================
+echo.
+set "SHORTCUT_RESPONSE="
+set /p SHORTCUT_RESPONSE=Create a desktop shortcut for Run TTS-Story? (y/n): 
+if /I "!SHORTCUT_RESPONSE!"=="y" goto :CreateShortcut
+if /I "!SHORTCUT_RESPONSE!"=="yes" goto :CreateShortcut
+goto :AfterShortcut
+
+:CreateShortcut
+powershell -NoLogo -NoProfile -Command "$shortcutPath = Join-Path $env:USERPROFILE 'Desktop\run tts-story.lnk'; $targetPath = Join-Path '%SCRIPT_DIR%' 'run.bat'; $wsh = New-Object -ComObject WScript.Shell; $shortcut = $wsh.CreateShortcut($shortcutPath); $shortcut.TargetPath = $targetPath; $shortcut.WorkingDirectory = '%SCRIPT_DIR%'; $shortcut.Save()"
+if errorlevel 1 (
+    echo WARNING: Failed to create desktop shortcut.
+) else (
+    echo Desktop shortcut created: run tts-story
+)
+
+:AfterShortcut
 echo.
 pause
 goto :EOF
