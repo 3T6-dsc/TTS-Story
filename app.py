@@ -1146,12 +1146,16 @@ def _ensure_qwen3_model(model_id: str) -> Path:
 
     def _has_weights(path: Path) -> bool:
         patterns = (
-            "*.safetensors",
-            "pytorch_model*.bin",
-            "model.safetensors",
-            "model.bin",
+            "**/*.safetensors",
+            "**/pytorch_model*.bin",
+            "**/model.safetensors",
+            "**/model.bin",
+            "**/model.ckpt.index",
+            "**/*.msgpack",
+            "**/*.pt",
+            "**/*.pth",
         )
-        return any(path.glob(pattern) for pattern in patterns)
+        return any(path.rglob(pattern.lstrip("**/")) if pattern.startswith("**/") else path.rglob(pattern) for pattern in patterns)
 
     local_model_dir = Path(__file__).parent / "models" / "qwen3"
     local_model_dir.mkdir(parents=True, exist_ok=True)
@@ -1170,7 +1174,17 @@ def _ensure_qwen3_model(model_id: str) -> Path:
                 local_dir=str(model_path),
                 local_dir_use_symlinks=False,
                 token=token,
-                allow_patterns=["*.safetensors", "*.bin", "*.json", "*.model", "*.txt", "*.pt"],
+                allow_patterns=[
+                    "**/*.safetensors",
+                    "**/*.bin",
+                    "**/*.json",
+                    "**/*.model",
+                    "**/*.txt",
+                    "**/*.pt",
+                    "**/*.pth",
+                    "**/*.msgpack",
+                    "**/*.ckpt.index",
+                ],
             )
         except Exception as exc:
             logger.error("Failed to download Qwen3 model %s: %s", model_id, exc, exc_info=True)
@@ -1178,6 +1192,11 @@ def _ensure_qwen3_model(model_id: str) -> Path:
                 "Qwen3 VoiceDesign model files are missing. Download the model while online "
                 "(repo: %s) into %s, then retry. If the model requires access, set HF_TOKEN." % (model_id, model_path)
             ) from exc
+        if not _has_weights(model_path):
+            raise RuntimeError(
+                "Qwen3 VoiceDesign model download completed but no weights were found in %s. "
+                "Ensure the repo access is valid (HF_TOKEN if required), then retry." % model_path
+            )
     return model_path
 
 
