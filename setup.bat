@@ -227,6 +227,8 @@ call :InstallSox
 call :InstallRubberBand
 call :InstallFFmpeg
 
+call :InstallVCRedist
+
 REM Check for espeak-ng
 echo.
 echo ========================================
@@ -234,17 +236,7 @@ echo Checking espeak-ng...
 echo ========================================
 where espeak-ng >nul 2>&1
 if errorlevel 1 (
-    echo.
-    echo WARNING: espeak-ng not found!
-    echo.
-    echo Please install espeak-ng manually:
-    echo 1. Download from: https://github.com/espeak-ng/espeak-ng/releases
-    echo 2. Get the file: espeak-ng-X64.msi
-    echo 3. Run the installer
-    echo 4. Restart your terminal
-    echo.
-    echo The application will NOT work without espeak-ng!
-    echo.
+    call :InstallEspeakNg
 ) else (
     echo espeak-ng is installed!
 )
@@ -268,6 +260,48 @@ echo 2. Run: run.bat
 echo 3. Open browser to: http://localhost:5000
 echo.
 pause
+goto :EOF
+
+:InstallVCRedist
+echo.
+echo Installing Microsoft Visual C++ Redistributable...
+set "VC_REDIST_URL=https://aka.ms/vs/16/release/vc_redist.x64.exe"
+set "VC_REDIST_EXE=%TEMP%\vc_redist.x64.exe"
+powershell -NoLogo -NoProfile -Command "$ProgressPreference='SilentlyContinue'; [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $url='%VC_REDIST_URL%'; try { Invoke-WebRequest -Uri $url -OutFile '%VC_REDIST_EXE%' -UseBasicParsing -ErrorAction Stop } catch { try { Start-BitsTransfer -Source $url -Destination '%VC_REDIST_EXE%' -ErrorAction Stop } catch { Write-Error $_.Exception.Message; exit 1 } }" >nul 2>&1
+if errorlevel 1 (
+    echo WARNING: Failed to download Visual C++ Redistributable.
+    echo You may need to install manually from: %VC_REDIST_URL%
+    goto :EOF
+)
+"%VC_REDIST_EXE%" /install /quiet /norestart
+if errorlevel 1 (
+    echo WARNING: Visual C++ Redistributable install failed.
+    echo You may need to install manually from: %VC_REDIST_URL%
+)
+goto :EOF
+
+:InstallEspeakNg
+echo.
+echo Installing espeak-ng...
+set "ESPEAK_URL=https://github.com/espeak-ng/espeak-ng/releases/latest/download/espeak-ng-X64.msi"
+set "ESPEAK_MSI=%TEMP%\espeak-ng-X64.msi"
+powershell -NoLogo -NoProfile -Command "$ProgressPreference='SilentlyContinue'; [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $url='%ESPEAK_URL%'; try { Invoke-WebRequest -Uri $url -OutFile '%ESPEAK_MSI%' -UseBasicParsing -ErrorAction Stop } catch { try { Start-BitsTransfer -Source $url -Destination '%ESPEAK_MSI%' -ErrorAction Stop } catch { Write-Error $_.Exception.Message; exit 1 } }" >nul 2>&1
+if errorlevel 1 (
+    echo WARNING: Failed to download espeak-ng.
+    echo Please install manually from: https://github.com/espeak-ng/espeak-ng/releases
+    goto :EOF
+)
+msiexec /i "%ESPEAK_MSI%" /qn /norestart
+if errorlevel 1 (
+    echo WARNING: espeak-ng install failed. Please install manually.
+    goto :EOF
+)
+where espeak-ng >nul 2>&1
+if errorlevel 1 (
+    echo WARNING: espeak-ng installed but not found in PATH. A restart may be required.
+) else (
+    echo espeak-ng installed successfully.
+)
 goto :EOF
 
 :EnsureVoicePromptFolder
