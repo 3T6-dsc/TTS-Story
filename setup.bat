@@ -7,14 +7,50 @@ echo TTS-Story Setup
 echo ========================================
 echo.
 
+set "PYTHON_INSTALLER_URL=https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe"
+set "PYTHON_INSTALLER=%TEMP%\python-installer.exe"
+
 REM Check Python installation
 echo [1/10] Checking Python installation...
 python --version >nul 2>&1
 if errorlevel 1 (
-    echo ERROR: Python is not installed or not in PATH
-    echo Please install Python 3.9 or higher from python.org
-    pause
-    exit /b 1
+    echo Python not found. Downloading and installing Python 3.11...
+    powershell -NoLogo -NoProfile -Command "$ProgressPreference='SilentlyContinue'; [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $url='%PYTHON_INSTALLER_URL%'; try { Invoke-WebRequest -Uri $url -OutFile '%PYTHON_INSTALLER%' -UseBasicParsing -ErrorAction Stop } catch { try { Start-BitsTransfer -Source $url -Destination '%PYTHON_INSTALLER%' -ErrorAction Stop } catch { Write-Error $_.Exception.Message; exit 1 } }"
+    if errorlevel 1 (
+        echo ERROR: Failed to download Python installer.
+        pause
+        exit /b 1
+    )
+    "%PYTHON_INSTALLER%" /quiet InstallAllUsers=0 PrependPath=1 Include_test=0
+    if errorlevel 1 (
+        echo ERROR: Python installer failed.
+        pause
+        exit /b 1
+    )
+    set "PY_DIR="
+    for /f "delims=" %%D in ('dir /b /ad /o-n "%LocalAppData%\Programs\Python\Python*" 2^>nul') do (
+        set "PY_DIR=%LocalAppData%\Programs\Python\%%D"
+        goto :FoundPython
+    )
+    for /f "delims=" %%D in ('dir /b /ad /o-n "%ProgramFiles%\Python*" 2^>nul') do (
+        set "PY_DIR=%ProgramFiles%\%%D"
+        goto :FoundPython
+    )
+    :FoundPython
+    if not defined PY_DIR (
+        echo ERROR: Python installed but install path not found.
+        echo Please restart your terminal or install Python 3.9+ manually.
+        pause
+        exit /b 1
+    )
+    set "PATH=%PY_DIR%;%PY_DIR%\Scripts;%PATH%"
+    python --version >nul 2>&1
+    if errorlevel 1 (
+        echo ERROR: Python installed but still not found in PATH.
+        echo Please restart your terminal and rerun setup.bat.
+        pause
+        exit /b 1
+    )
 )
 
 for /f "tokens=2" %%i in ('python --version 2^>^&1') do set PYTHON_VERSION=%%i
