@@ -1143,22 +1143,40 @@ def _effective_compute_mode(config: Dict[str, Any]) -> str:
 
 def _ensure_qwen3_model(model_id: str) -> Path:
     from huggingface_hub import snapshot_download
+
+    def _has_weights(path: Path) -> bool:
+        patterns = (
+            "*.safetensors",
+            "pytorch_model*.bin",
+            "model.safetensors",
+            "model.bin",
+        )
+        return any(path.glob(pattern) for pattern in patterns)
+
     local_model_dir = Path(__file__).parent / "models" / "qwen3"
     local_model_dir.mkdir(parents=True, exist_ok=True)
     model_path = local_model_dir / model_id.replace("/", "_")
-    if not model_path.exists() or not any(model_path.iterdir()):
+    needs_download = not model_path.exists() or not any(model_path.iterdir()) or not _has_weights(model_path)
+
+    if needs_download:
+        if model_path.exists() and any(model_path.iterdir()) and not _has_weights(model_path):
+            logger.warning("Qwen3 model folder exists but contains no weights. Re-downloading...")
+            shutil.rmtree(model_path, ignore_errors=True)
         logger.info("Downloading Qwen3 model to %s (this may take a few minutes)...", model_path)
         try:
+            token = os.getenv("HF_TOKEN") or False
             snapshot_download(
                 repo_id=model_id,
                 local_dir=str(model_path),
                 local_dir_use_symlinks=False,
+                token=token,
+                allow_patterns=["*.safetensors", "*.bin", "*.json", "*.model", "*.txt", "*.pt"],
             )
         except Exception as exc:
             logger.error("Failed to download Qwen3 model %s: %s", model_id, exc, exc_info=True)
             raise RuntimeError(
                 "Qwen3 VoiceDesign model files are missing. Download the model while online "
-                "(repo: %s) into %s, then retry." % (model_id, model_path)
+                "(repo: %s) into %s, then retry. If the model requires access, set HF_TOKEN." % (model_id, model_path)
             ) from exc
     return model_path
 
