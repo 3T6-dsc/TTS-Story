@@ -2748,6 +2748,64 @@ def get_voices():
     })
 
 
+@app.route('/api/custom-voices', methods=['GET'])
+def list_custom_voices_api():
+    """Return all saved custom voice blends."""
+    voices = list_custom_voice_entries()
+    return jsonify({"success": True, "voices": voices})
+
+
+@app.route('/api/custom-voices', methods=['POST'])
+def create_custom_voice_api():
+    data = request.get_json(silent=True) or {}
+    try:
+        payload = _prepare_custom_voice_payload(data)
+    except ValueError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 400
+
+    now = datetime.utcnow().isoformat()
+    payload.setdefault("created_at", now)
+    payload["updated_at"] = now
+    saved = save_custom_voice(payload)
+    public = _to_public_custom_voice(saved)
+    clear_cached_custom_voice(public.get("code"))
+    return jsonify({"success": True, "voice": public})
+
+
+@app.route('/api/custom-voices/<voice_id>', methods=['PUT'])
+def update_custom_voice_api(voice_id: str):
+    data = request.get_json(silent=True) or {}
+    existing = _get_raw_custom_voice(voice_id)
+    if not existing:
+        return jsonify({"success": False, "error": "Custom voice not found."}), 404
+
+    try:
+        payload = _prepare_custom_voice_payload(data, existing)
+    except ValueError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 400
+
+    payload["id"] = existing.get("id")
+    payload.setdefault("created_at", existing.get("created_at") or datetime.utcnow().isoformat())
+    payload["updated_at"] = datetime.utcnow().isoformat()
+    saved = replace_custom_voice(payload)
+    public = _to_public_custom_voice(saved)
+    clear_cached_custom_voice(public.get("code"))
+    return jsonify({"success": True, "voice": public})
+
+
+@app.route('/api/custom-voices/<voice_id>', methods=['DELETE'])
+def delete_custom_voice_api(voice_id: str):
+    existing = _get_raw_custom_voice(voice_id)
+    if not existing:
+        return jsonify({"success": False, "error": "Custom voice not found."}), 404
+
+    deleted = delete_custom_voice(existing.get("id"))
+    if not deleted:
+        return jsonify({"success": False, "error": "Failed to delete custom voice."}), 500
+    clear_cached_custom_voice(f"{CUSTOM_CODE_PREFIX}{existing.get('id')}")
+    return jsonify({"success": True})
+
+
 def _get_audio_duration(file_path: Path) -> Optional[float]:
     """Get audio duration in seconds using pydub."""
     try:
