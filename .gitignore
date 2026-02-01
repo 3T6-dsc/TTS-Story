@@ -66,3 +66,9 @@ data/external_voices_cache.json
 
 # Huggingface cache
 .cache/
+
+# Tools (bundled binaries)
+tools/ffmpeg/
+tools/rubberband/
+!tools/sox/
+!tools/sox/**
