@@ -150,7 +150,7 @@ if "%SKIP_TORCH_INSTALL%"=="1" (
 )
 
 if "%NEED_TORCH_INSTALL%"=="0" (
-    echo Skipping torch install (compatible build already present).
+    echo Skipping torch install - compatible build already present.
 ) else (
 
     if "%HAS_NVIDIA%"=="1" (
