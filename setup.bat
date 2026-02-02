@@ -108,9 +108,9 @@ if errorlevel 1 (
 )
 
 if "%HAS_NVIDIA%"=="1" (
-    REM Install PyTorch with CUDA 12.1 (most compatible)
-    echo Installing PyTorch with CUDA 12.1 support...
-    pip install torch==%TORCH_VERSION%+cu121 torchvision==%TORCHVISION_VERSION%+cu121 torchaudio==%TORCHAUDIO_VERSION%+cu121 --index-url https://download.pytorch.org/whl/cu121
+    REM Install PyTorch with CUDA 12.4 (available for torch 2.6.0)
+    echo Installing PyTorch with CUDA 12.4 support...
+    pip install torch==%TORCH_VERSION%+cu124 torchvision==%TORCHVISION_VERSION%+cu124 torchaudio==%TORCHAUDIO_VERSION%+cu124 --index-url https://download.pytorch.org/whl/cu124
 
     if errorlevel 1 (
         echo.
