@@ -140,9 +140,17 @@ del temp_requirements_filtered.txt
 
 echo.
 echo Installing optional pyopenjtalk (Japanese text support)...
-pip install pyopenjtalk
+where cl >nul 2>&1
 if errorlevel 1 (
-    echo WARNING: pyopenjtalk failed to install. Japanese TTS features will be unavailable.
+    echo WARNING: MSVC build tools not found. Skipping pyopenjtalk.
+    echo To enable Japanese TTS, install MSVC Build Tools:
+    echo https://aka.ms/vs/17/release/vs_buildtools.exe
+    echo Then select "Desktop development with C++" and rerun setup.bat.
+) else (
+    pip install pyopenjtalk
+    if errorlevel 1 (
+        echo WARNING: pyopenjtalk failed to install. Japanese TTS features will be unavailable.
+    )
 )
 
 REM Install local Chatterbox runtime
