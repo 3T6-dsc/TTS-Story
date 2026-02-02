@@ -5170,7 +5170,7 @@ def _build_library_listing():
         job_id = job_dir.name
         metadata = load_job_metadata(job_dir)
 
-        if metadata and (metadata.get("chapters") or metadata.get("books")):
+        if metadata and (metadata.get("chapters") or metadata.get("books") or metadata.get("full_story")):
             chapters_data = []
             total_size = 0
             created_ts = None
@@ -5290,6 +5290,34 @@ def _build_library_listing():
                     "collection_title": metadata.get("collection_title"),
                     "books": chapters_data if metadata.get("book_mode") else [],
                     "chapters": chapters_data,
+                    "full_story": full_story_entry,
+                    "has_chunks": has_chunks,
+                    "engine": engine,
+                })
+            elif full_story_entry:
+                chunks_meta_path = job_dir / "chunks_metadata.json"
+                manifest_path = job_dir / "review_manifest.json"
+                has_chunks = chunks_meta_path.exists() or manifest_path.exists()
+                engine = None
+                if chunks_meta_path.exists():
+                    try:
+                        with chunks_meta_path.open("r", encoding="utf-8") as f:
+                            chunks_meta = json.load(f)
+                            engine = chunks_meta.get("engine")
+                    except Exception:
+                        pass
+                library_items.append({
+                    "job_id": job_id,
+                    "output_file": full_story_entry["output_file"],
+                    "relative_path": full_story_entry["relative_path"],
+                    "created_at": (created_ts or datetime.now()).isoformat(),
+                    "file_size": total_size or full_story_entry.get("file_size"),
+                    "format": metadata.get("output_format", full_story_entry.get("format")),
+                    "chapter_mode": metadata.get("chapter_mode", False),
+                    "book_mode": metadata.get("book_mode", False),
+                    "collection_title": metadata.get("collection_title"),
+                    "books": [],
+                    "chapters": [],
                     "full_story": full_story_entry,
                     "has_chunks": has_chunks,
                     "engine": engine,
