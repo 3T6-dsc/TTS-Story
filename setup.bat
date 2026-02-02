@@ -11,7 +11,7 @@ set "PYTHON_INSTALLER_URL=https://www.python.org/ftp/python/3.11.9/python-3.11.9
 set "PYTHON_INSTALLER=%TEMP%\python-installer.exe"
 
 REM Check Python installation
-echo [1/10] Checking Python installation...
+echo [1/12] Checking Python installation...
 python --version >nul 2>&1
 if errorlevel 1 (
     echo Python not found. Downloading and installing Python 3.11...
@@ -68,7 +68,7 @@ if defined GPU_NAME (
 
 REM Create virtual environment
 echo.
-echo [2/10] Creating virtual environment...
+echo [2/12] Creating virtual environment...
 if exist venv (
     echo Virtual environment already exists, skipping...
 ) else (
@@ -82,17 +82,17 @@ if exist venv (
 
 REM Activate virtual environment
 echo.
-echo [3/10] Activating virtual environment...
+echo [3/12] Activating virtual environment...
 call venv\Scripts\activate.bat
 
 REM Upgrade pip
 echo.
-echo [4/10] Upgrading pip...
+echo [4/12] Upgrading pip...
 python -m pip install --upgrade pip --quiet
 
 REM Install PyTorch (let pip/PyTorch auto-detect CUDA)
 echo.
-echo [5/10] Installing PyTorch...
+echo [5/12] Installing PyTorch...
 echo This may take several minutes...
 echo.
 
@@ -126,7 +126,7 @@ if "%HAS_NVIDIA%"=="1" (
 
 REM Install other dependencies (excluding torch + chatterbox runtime handled separately)
 echo.
-echo [6/10] Installing other Python dependencies...
+echo [6/12] Installing other Python dependencies...
 findstr /v /i "torch" requirements.txt > temp_requirements.txt
 findstr /v /i "pyopenjtalk" temp_requirements.txt > temp_requirements_filtered.txt
 del temp_requirements.txt
@@ -147,7 +147,7 @@ if errorlevel 1 (
 
 REM Install local Chatterbox runtime
 echo.
-echo [7/10] Installing Chatterbox Turbo runtime...
+echo [7/12] Installing Chatterbox Turbo runtime...
 pip install chatterbox-tts --no-deps
 if errorlevel 1 (
     echo ERROR: Failed to install chatterbox-tts
@@ -157,7 +157,7 @@ if errorlevel 1 (
 
 REM Install VoxCPM runtime
 echo.
-echo [8/10] Installing VoxCPM 1.5 runtime...
+echo [8/12] Installing VoxCPM 1.5 runtime...
 pip install voxcpm --no-deps
 if errorlevel 1 (
     echo WARNING: Failed to install voxcpm - VoxCPM engine will not be available
@@ -165,7 +165,7 @@ if errorlevel 1 (
 
 REM Optional performance extras (best-effort)
 echo.
-echo [9/10] Installing optional performance extras...
+echo [9/12] Installing optional performance extras...
 echo - flash-attn (Qwen3 speedup)
 echo - hf_xet (faster Hugging Face downloads)
 if "%HAS_NVIDIA%"=="0" (
@@ -338,7 +338,7 @@ goto :EOF
 
 :InstallSox
 echo.
-echo [10/10] Installing SoX...
+echo [10/12] Installing SoX...
 set "SOX_DIR=%~dp0tools\sox"
 set "SOX_URL_1=https://gigenet.dl.sourceforge.net/project/sox/sox/14.4.2/sox-14.4.2-win64.zip"
 set "SOX_URL_2=https://gigenet.dl.sourceforge.net/project/sox/sox/14.4.2/sox-14.4.2-win32.zip"
@@ -432,7 +432,7 @@ goto :EOF
 
 :InstallRubberBand
 echo.
-echo [11/10] Installing Rubber Band CLI...
+echo [11/12] Installing Rubber Band CLI...
 set "RB_DIR=%~dp0tools\rubberband"
 set "RB_URL=https://breakfastquay.com/files/releases/rubberband-4.0.0-gpl-executable-windows.zip"
 set "RB_ZIP=%TEMP%\rubberband_cli.zip"
@@ -496,9 +496,10 @@ goto :EOF
 
 :InstallFFmpeg
 echo.
-echo [12/10] Installing FFmpeg...
+echo [12/12] Installing FFmpeg...
 set "FF_DIR=%~dp0tools\ffmpeg"
-set "FF_URL=https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
+set "FF_URL_1=https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
+set "FF_URL_2=https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
 set "FF_ZIP=%TEMP%\ffmpeg_download.zip"
 set "FF_EXTRACT=%TEMP%\ffmpeg_extract"
 
@@ -514,8 +515,8 @@ if not exist "%~dp0tools" (
 if exist "%FF_ZIP%" del "%FF_ZIP%" >nul 2>&1
 if exist "%FF_EXTRACT%" rmdir /s /q "%FF_EXTRACT%" >nul 2>&1
 
-echo Downloading FFmpeg from GitHub...
-powershell -NoLogo -NoProfile -Command "try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13; Invoke-WebRequest -Uri '%FF_URL%' -OutFile '%FF_ZIP%' -UseBasicParsing -ErrorAction Stop; } catch { Write-Error $_.Exception.Message; exit 1 }" >nul 2>&1
+echo Downloading FFmpeg...
+powershell -NoLogo -NoProfile -Command "$ProgressPreference='SilentlyContinue'; [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $urls=@('%FF_URL_1%','%FF_URL_2%'); $ok=$false; foreach ($u in $urls) { try { Invoke-WebRequest -Uri $u -OutFile '%FF_ZIP%' -UseBasicParsing -ErrorAction Stop; $ok=$true; break } catch { try { Start-BitsTransfer -Source $u -Destination '%FF_ZIP%' -ErrorAction Stop; $ok=$true; break } catch { } } } if (-not $ok) { Write-Error 'Failed to download FFmpeg from all sources.'; exit 1 }" >nul 2>&1
 if errorlevel 1 (
     echo WARNING: Failed to download FFmpeg. Audio merging may use system FFmpeg.
     goto :EOF
