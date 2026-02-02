@@ -9,6 +9,9 @@ echo.
 
 set "PYTHON_INSTALLER_URL=https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe"
 set "PYTHON_INSTALLER=%TEMP%\python-installer.exe"
+set "TORCH_VERSION=2.6.0"
+set "TORCHVISION_VERSION=0.21.0"
+set "TORCHAUDIO_VERSION=2.6.0"
 
 REM Check Python installation
 echo [1/12] Checking Python installation...
@@ -107,7 +110,7 @@ if errorlevel 1 (
 if "%HAS_NVIDIA%"=="1" (
     REM Install PyTorch with CUDA 12.1 (most compatible)
     echo Installing PyTorch with CUDA 12.1 support...
-    pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+    pip install torch==%TORCH_VERSION%+cu121 torchvision==%TORCHVISION_VERSION%+cu121 torchaudio==%TORCHAUDIO_VERSION%+cu121 --index-url https://download.pytorch.org/whl/cu121
 
     if errorlevel 1 (
         echo.
@@ -117,12 +120,13 @@ if "%HAS_NVIDIA%"=="1" (
 ) else (
     echo Installing CPU-only PyTorch...
     pip uninstall -y torch torchvision torchaudio >nul 2>&1
-    pip install --upgrade --force-reinstall torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+    pip install --upgrade --force-reinstall torch==%TORCH_VERSION%+cpu torchvision==%TORCHVISION_VERSION%+cpu torchaudio==%TORCHAUDIO_VERSION%+cpu --index-url https://download.pytorch.org/whl/cpu
     if errorlevel 1 (
         echo.
         echo CPU-only PyTorch install failed, trying default index...
         pip install --upgrade --force-reinstall torch torchvision torchaudio
     )
+    pip install --upgrade "numpy<1.26.0" "pillow<12.0" "fsspec<=2025.3.0" "filelock>=3.20.1,<4"
 )
 
 REM Install other dependencies (excluding torch + chatterbox runtime handled separately)

@@ -36,19 +36,24 @@ call venv\Scripts\activate.bat
 
 REM Ensure CPU-only torch on systems without NVIDIA GPUs
 if "%HAS_NVIDIA%"=="0" (
-    set "TORCH_VERSION="
-    for /f "delims=" %%V in ('python -c "import torch, sys; sys.stdout.write(torch.__version__)" 2^>nul') do set "TORCH_VERSION=%%V"
-    if not defined TORCH_VERSION (
+    set "TORCH_PIN=2.6.0"
+    set "TORCHVISION_PIN=0.21.0"
+    set "TORCHAUDIO_PIN=2.6.0"
+    set "TORCH_INSTALLED="
+    for /f "delims=" %%V in ('python -c "import torch, sys; sys.stdout.write(torch.__version__)" 2^>nul') do set "TORCH_INSTALLED=%%V"
+    if not defined TORCH_INSTALLED (
         echo WARNING: PyTorch failed to import. Reinstalling CPU-only torch...
         pip uninstall -y torch torchvision torchaudio >nul 2>&1
-        pip install --upgrade --force-reinstall torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+        pip install --upgrade --force-reinstall torch==!TORCH_PIN!+cpu torchvision==!TORCHVISION_PIN!+cpu torchaudio==!TORCHAUDIO_PIN!+cpu --index-url https://download.pytorch.org/whl/cpu
+        pip install --upgrade "numpy<1.26.0" "pillow<12.0" "fsspec<=2025.3.0" "filelock>=3.20.1,<4"
     ) else (
-        echo Detected PyTorch: !TORCH_VERSION!
-        echo !TORCH_VERSION! | findstr /i "+cu" >nul 2>&1
+        echo Detected PyTorch: !TORCH_INSTALLED!
+        echo !TORCH_INSTALLED! | findstr /i "+cu" >nul 2>&1
         if not errorlevel 1 (
             echo CUDA build detected on CPU-only system. Reinstalling CPU-only torch...
             pip uninstall -y torch torchvision torchaudio >nul 2>&1
-            pip install --upgrade --force-reinstall torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+            pip install --upgrade --force-reinstall torch==!TORCH_PIN!+cpu torchvision==!TORCHVISION_PIN!+cpu torchaudio==!TORCHAUDIO_PIN!+cpu --index-url https://download.pytorch.org/whl/cpu
+            pip install --upgrade "numpy<1.26.0" "pillow<12.0" "fsspec<=2025.3.0" "filelock>=3.20.1,<4"
         )
     )
 )
