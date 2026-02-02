@@ -4428,9 +4428,14 @@ function getVoiceAssignments() {
         if (Object.keys(assignments).length) {
             applyTurboSelections(assignments, turboSelections, globalReference);
         } else {
-            const targets = (currentStats?.speakers && currentStats.speakers.length)
-                ? currentStats.speakers
-                : ['default'];
+            const rowSpeakers = getAssignmentRows()
+                .map(row => row.dataset.speaker)
+                .filter(Boolean);
+            const targets = rowSpeakers.length
+                ? rowSpeakers
+                : ((currentStats?.speakers && currentStats.speakers.length)
+                    ? currentStats.speakers
+                    : ['default']);
             targets.forEach(speakerKey => {
                 const selection = turboSelections[speakerKey] || {};
                 const resolvedReference = selection.reference || globalReference || '';
