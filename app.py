@@ -722,6 +722,8 @@ def _validate_voice_assignments_for_engine(
     speakers = _extract_speakers_for_text(text)
     normalized_assignments = _normalize_voice_assignments_map(voice_assignments)
     default_assignment = normalized_assignments.get("default") or {}
+    if not default_assignment and len(normalized_assignments) == 1:
+        default_assignment = next(iter(normalized_assignments.values())) or {}
     missing_voices: List[str] = []
     missing_prompts: List[str] = []
 
