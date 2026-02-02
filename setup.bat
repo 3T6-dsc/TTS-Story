@@ -283,9 +283,10 @@ goto :EOF
 :InstallEspeakNg
 echo.
 echo Installing espeak-ng...
-set "ESPEAK_URL=https://github.com/espeak-ng/espeak-ng/releases/latest/download/espeak-ng-X64.msi"
+set "ESPEAK_URL="
+set "ESPEAK_FALLBACK_URL=https://github.com/espeak-ng/espeak-ng/releases/latest/download/espeak-ng-X64.msi"
 set "ESPEAK_MSI=%TEMP%\espeak-ng-X64.msi"
-powershell -NoLogo -NoProfile -Command "$ProgressPreference='SilentlyContinue'; [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $url='%ESPEAK_URL%'; try { Invoke-WebRequest -Uri $url -OutFile '%ESPEAK_MSI%' -UseBasicParsing -ErrorAction Stop } catch { try { Start-BitsTransfer -Source $url -Destination '%ESPEAK_MSI%' -ErrorAction Stop } catch { Write-Error $_.Exception.Message; exit 1 } }" >nul 2>&1
+powershell -NoLogo -NoProfile -Command "$ProgressPreference='SilentlyContinue'; [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $api='https://api.github.com/repos/espeak-ng/espeak-ng/releases/latest'; $headers=@{ 'User-Agent'='TTS-Story-Installer' }; try { $release=Invoke-RestMethod -Uri $api -Headers $headers -ErrorAction Stop; $asset=$release.assets | Where-Object { $_.name -match 'x64\.msi$' -or $_.name -match 'X64\.msi$' } | Select-Object -First 1; if ($asset) { $url=$asset.browser_download_url } else { $url='%ESPEAK_FALLBACK_URL%' } } catch { $url='%ESPEAK_FALLBACK_URL%' } try { Invoke-WebRequest -Uri $url -OutFile '%ESPEAK_MSI%' -UseBasicParsing -ErrorAction Stop } catch { try { Start-BitsTransfer -Source $url -Destination '%ESPEAK_MSI%' -ErrorAction Stop } catch { Write-Error $_.Exception.Message; exit 1 } }" >nul 2>&1
 if errorlevel 1 (
     echo WARNING: Failed to download espeak-ng.
     echo Please install manually from: https://github.com/espeak-ng/espeak-ng/releases
