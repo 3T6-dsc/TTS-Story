@@ -1,3 +1,10 @@
+# Current Updates and Notes - updated 02-02-2026
+- CPU-only installs: improved compatibility checks and automatic CPU torch fallback.
+- GPU installs: CUDA torch wheels updated to cu124 for PyTorch 2.6.0.
+- Torch install is now flexible: detects existing compatible builds and supports overrides (SKIP_TORCH_INSTALL / FORCE_TORCH_REINSTALL).
+- Library auto-refreshes when jobs complete (no manual refresh needed).
+- Chatterbox/VoxCPM/Qwen3 default speaker assignments now recognized reliably.
+
 # TTS-Story
 
 A web-based Text-to-Speech application supporting multiple TTS engines including **Kokoro-82M**, **Chatterbox**, **VoxCPM 1.5**, and **Qwen3 TTS** (Custom Voice, Clone, Voice Creation), with both local GPU inference and Replicate cloud API options for generating multi-voice audiobooks and stories.

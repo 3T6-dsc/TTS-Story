@@ -107,26 +107,61 @@ if errorlevel 1 (
     exit /b 1
 )
 
-if "%HAS_NVIDIA%"=="1" (
-    REM Install PyTorch with CUDA 12.4 (available for torch 2.6.0)
-    echo Installing PyTorch with CUDA 12.4 support...
-    pip install torch==%TORCH_VERSION%+cu124 torchvision==%TORCHVISION_VERSION%+cu124 torchaudio==%TORCHAUDIO_VERSION%+cu124 --index-url https://download.pytorch.org/whl/cu124
+set "TORCH_INSTALLED="
+set "TORCH_CUDA="
+set "NEED_TORCH_INSTALL=1"
+for /f "usebackq delims=" %%V in (`python -c "import torch,sys; print(torch.__version__); print('cuda' if torch.cuda.is_available() else 'cpu')" 2^>nul`) do (
+    if not defined TORCH_INSTALLED (
+        set "TORCH_INSTALLED=%%V"
+    ) else (
+        set "TORCH_CUDA=%%V"
+    )
+)
 
-    if errorlevel 1 (
-        echo.
-        echo PyTorch installation failed, trying CPU version...
-        pip install torch torchvision torchaudio
+if "%SKIP_TORCH_INSTALL%"=="1" (
+    echo SKIP_TORCH_INSTALL=1 set. Skipping torch install/update.
+    set "NEED_TORCH_INSTALL=0"
+) else if "%FORCE_TORCH_REINSTALL%"=="1" (
+    echo FORCE_TORCH_REINSTALL=1 set. Reinstalling torch.
+) else if defined TORCH_INSTALLED (
+    if "%HAS_NVIDIA%"=="1" (
+        if /i "%TORCH_CUDA%"=="cuda" (
+            echo Detected existing CUDA torch: %TORCH_INSTALLED%
+            set "NEED_TORCH_INSTALL=0"
+        )
+    ) else (
+        if /i "%TORCH_CUDA%"=="cpu" (
+            echo Detected existing CPU torch: %TORCH_INSTALLED%
+            set "NEED_TORCH_INSTALL=0"
+        )
     )
+)
+
+if "%NEED_TORCH_INSTALL%"=="0" (
+    echo Skipping torch install (compatible build already present).
 ) else (
-    echo Installing CPU-only PyTorch...
-    pip uninstall -y torch torchvision torchaudio >nul 2>&1
-    pip install --upgrade --force-reinstall torch==%TORCH_VERSION%+cpu torchvision==%TORCHVISION_VERSION%+cpu torchaudio==%TORCHAUDIO_VERSION%+cpu --index-url https://download.pytorch.org/whl/cpu
-    if errorlevel 1 (
-        echo.
-        echo CPU-only PyTorch install failed, trying default index...
-        pip install --upgrade --force-reinstall torch torchvision torchaudio
+
+    if "%HAS_NVIDIA%"=="1" (
+        REM Install PyTorch with CUDA 12.4 (available for torch 2.6.0)
+        echo Installing PyTorch with CUDA 12.4 support...
+        pip install torch==%TORCH_VERSION%+cu124 torchvision==%TORCHVISION_VERSION%+cu124 torchaudio==%TORCHAUDIO_VERSION%+cu124 --index-url https://download.pytorch.org/whl/cu124
+
+        if errorlevel 1 (
+            echo.
+            echo PyTorch installation failed, trying CPU version...
+            pip install torch torchvision torchaudio
+        )
+    ) else (
+        echo Installing CPU-only PyTorch...
+        pip uninstall -y torch torchvision torchaudio >nul 2>&1
+        pip install --upgrade --force-reinstall torch==%TORCH_VERSION%+cpu torchvision==%TORCHVISION_VERSION%+cpu torchaudio==%TORCHAUDIO_VERSION%+cpu --index-url https://download.pytorch.org/whl/cpu
+        if errorlevel 1 (
+            echo.
+            echo CPU-only PyTorch install failed, trying default index...
+            pip install --upgrade --force-reinstall torch torchvision torchaudio
+        )
+        pip install --upgrade "numpy<1.26.0" "pillow<12.0" "fsspec<=2025.3.0" "filelock>=3.20.1,<4"
     )
-    pip install --upgrade "numpy<1.26.0" "pillow<12.0" "fsspec<=2025.3.0" "filelock>=3.20.1,<4"
 )
 
 REM Install other dependencies (excluding torch + chatterbox runtime handled separately)
