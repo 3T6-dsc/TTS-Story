@@ -28,7 +28,6 @@ if exist "%FFMPEG_EXE%" (
     echo FFmpeg ready: %FFMPEG_EXE%
 ) else (
     echo WARNING: FFmpeg not found (expected %FFMPEG_EXE%)
-    echo          Audio merging may fail without FFmpeg.
 )
 
 REM Detect NVIDIA GPU (for CPU-only torch fallback)
@@ -80,7 +79,6 @@ if exist "%RB_EXE%" (
     echo Rubber Band CLI ready: %RB_EXE%
 ) else (
     echo WARNING: Rubber Band CLI not found (expected %RB_EXE%)
-    echo          Pitch/tempo FX will fall back to lower-quality processing.
 )
 
 REM Ensure SoX is on PATH if bundled
@@ -90,7 +88,6 @@ if exist "%SOX_EXE%" (
     echo SoX ready: %SOX_EXE%
 ) else (
     echo WARNING: SoX not found (expected %SOX_EXE%)
-    echo          Audio cleanup may be lower quality and clicks may occur.
 )
 
 REM Skip CUDA check at startup (can hang on some systems)

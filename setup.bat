@@ -117,12 +117,17 @@ if errorlevel 1 (
 set "TORCH_INSTALLED="
 set "TORCH_CUDA="
 set "NEED_TORCH_INSTALL=1"
-for /f "usebackq delims=" %%V in (`python -c "import torch,sys; print(torch.__version__); print('cuda' if torch.cuda.is_available() else 'cpu')" 2^>nul`) do (
-    if not defined TORCH_INSTALLED (
-        set "TORCH_INSTALLED=%%V"
-    ) else (
-        set "TORCH_CUDA=%%V"
+set "TORCH_INFO_FILE=%TEMP%\tts_torch_info.txt"
+python -c "import torch,sys; print(torch.__version__); print('cuda' if torch.cuda.is_available() else 'cpu')" > "%TORCH_INFO_FILE%" 2>nul
+if exist "%TORCH_INFO_FILE%" (
+    for /f "usebackq delims=" %%V in ("%TORCH_INFO_FILE%") do (
+        if not defined TORCH_INSTALLED (
+            set "TORCH_INSTALLED=%%V"
+        ) else (
+            set "TORCH_CUDA=%%V"
+        )
     )
+    del "%TORCH_INFO_FILE%" >nul 2>&1
 )
 
 if "%SKIP_TORCH_INSTALL%"=="1" (
