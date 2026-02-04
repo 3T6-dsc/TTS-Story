@@ -196,7 +196,7 @@ findstr /v /i "s3tokenizer" temp_requirements_filtered2.txt > temp_requirements_
 del temp_requirements.txt
 del temp_requirements_filtered.txt
 del temp_requirements_filtered2.txt
-pip install --prefer-binary -r temp_requirements_filtered3.txt
+pip install --prefer-binary --only-binary=pandas -r temp_requirements_filtered3.txt
 if errorlevel 1 (
     echo ERROR: Failed to install dependencies
     pause

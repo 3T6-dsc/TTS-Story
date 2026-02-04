@@ -19,6 +19,7 @@ replicate>=0.25.0
 requests>=2.31.0
 python-dotenv>=1.0.0
 google-genai>=1.0.0
+pandas==2.2.3
 
 # Chatterbox Turbo local runtime dependencies
 s3tokenizer
