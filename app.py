@@ -17,6 +17,7 @@ import os
 import queue
 import re
 import shutil
+import sqlite3
 import stat
 import subprocess
 import tempfile
@@ -64,6 +65,7 @@ from src.engines.chatterbox_turbo_local_engine import (
 from src.engines.voxcpm_local_engine import VOXCPM_AVAILABLE
 from src.engines.qwen3_custom_voice_engine import QWEN3_AVAILABLE
 from src.engines.qwen3_voice_clone_engine import QWEN3_AVAILABLE as QWEN3_CLONE_AVAILABLE
+from src.engines.pocket_tts_engine import POCKET_TTS_AVAILABLE
 from src.engines.chatterbox_turbo_replicate_engine import (
     DEFAULT_CHATTERBOX_TURBO_REPLICATE_MODEL,
     DEFAULT_CHATTERBOX_TURBO_REPLICATE_VOICE,
@@ -95,6 +97,11 @@ CONFIG_FILE = "config.json"
 # from a different working directory.
 OUTPUT_DIR = Path(app.static_folder) / "audio"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+JOBS_DATA_DIR = Path("data/jobs")
+JOBS_ARCHIVE_DIR = JOBS_DATA_DIR / "archive"
+JOBS_DB_PATH = JOBS_DATA_DIR / "jobs.db"
+JOBS_DATA_DIR.mkdir(parents=True, exist_ok=True)
+JOBS_ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
 VOICE_PROMPT_DIR = Path("data/voice_prompts")
 VOICE_PROMPT_DIR.mkdir(parents=True, exist_ok=True)
 VOICE_PROMPT_EXTENSIONS = {".wav", ".mp3", ".m4a", ".flac", ".ogg"}
@@ -108,6 +115,7 @@ MIN_CHATTERBOX_PROMPT_SECONDS = 5.0
 DEFAULT_CONFIG = {
     "replicate_api_key": "",
     "chunk_size": 500,
+    "kokoro_chunk_size": 500,
     "sample_rate": 24000,
     "speed": 1.0,
     "output_format": "mp3",
@@ -167,10 +175,30 @@ DEFAULT_CONFIG = {
     "qwen3_clone_default_prompt": "",
     "qwen3_clone_default_prompt_text": "",
     "qwen3_voice_design_model_id": "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign",
+    "pocket_tts_model_variant": "b6369a24",
+    "pocket_tts_temp": 0.7,
+    "pocket_tts_lsd_decode_steps": 1,
+    "pocket_tts_noise_clamp": None,
+    "pocket_tts_eos_threshold": -4.0,
+    "pocket_tts_default_prompt": "",
+    "pocket_tts_prompt_truncate": False,
+    "pocket_tts_num_threads": None,
+    "pocket_tts_interop_threads": None,
     "parallel_chunks": 3,
     "group_chunks_by_speaker": False,
     "cleanup_vram_after_job": False,
 }
+
+POCKET_TTS_PRESET_VOICES = [
+    "alba",
+    "marius",
+    "javert",
+    "jean",
+    "fantine",
+    "cosette",
+    "eponine",
+    "azelma",
+]
 
 CHATTERBOX_TURBO_LOCAL_SETTING_KEYS = {
     "chatterbox_turbo_local_default_prompt",
@@ -210,6 +238,17 @@ QWEN3_CLONE_SETTING_KEYS = {
     "qwen3_clone_default_language",
     "qwen3_clone_default_prompt",
     "qwen3_clone_default_prompt_text",
+}
+POCKET_TTS_SETTING_KEYS = {
+    "pocket_tts_model_variant",
+    "pocket_tts_temp",
+    "pocket_tts_lsd_decode_steps",
+    "pocket_tts_noise_clamp",
+    "pocket_tts_eos_threshold",
+    "pocket_tts_default_prompt",
+    "pocket_tts_prompt_truncate",
+    "pocket_tts_num_threads",
+    "pocket_tts_interop_threads",
 }
 CHATTERBOX_TURBO_LOCAL_OPTION_ALIASES = {
     "default_prompt": "chatterbox_turbo_local_default_prompt",
@@ -253,6 +292,20 @@ QWEN3_CLONE_OPTION_ALIASES = {
     "default_language": "qwen3_clone_default_language",
     "default_prompt": "qwen3_clone_default_prompt",
     "prompt_text": "qwen3_clone_default_prompt_text",
+}
+POCKET_TTS_OPTION_ALIASES = {
+    "model": "pocket_tts_model_variant",
+    "model_variant": "pocket_tts_model_variant",
+    "temp": "pocket_tts_temp",
+    "temperature": "pocket_tts_temp",
+    "lsd_decode_steps": "pocket_tts_lsd_decode_steps",
+    "noise_clamp": "pocket_tts_noise_clamp",
+    "eos_threshold": "pocket_tts_eos_threshold",
+    "default_prompt": "pocket_tts_default_prompt",
+    "prompt": "pocket_tts_default_prompt",
+    "prompt_truncate": "pocket_tts_prompt_truncate",
+    "num_threads": "pocket_tts_num_threads",
+    "interop_threads": "pocket_tts_interop_threads",
 }
 CHATTERBOX_TURBO_LOCAL_BOOLEAN_SETTINGS = {
     "chatterbox_turbo_local_norm_loudness",
@@ -393,6 +446,8 @@ def _normalize_engine_options(engine_name: str, options: Dict[str, Any]) -> Dict
         return _normalize_qwen3_custom_options(options)
     if engine_name == "qwen3_clone":
         return _normalize_qwen3_clone_options(options)
+    if engine_name in {"pocket_tts", "pocket_tts_preset"}:
+        return _normalize_pocket_tts_options(options)
     return {}
 
 
@@ -422,6 +477,46 @@ def _normalize_chatterbox_turbo_local_options(options: Dict[str, Any]) -> Dict[s
             result[key] = _coerce_int(value, minimum=minimum, maximum=maximum, fallback=fallback)
             continue
         result[key] = (value or "").strip() if isinstance(value, str) else (value or "")
+    return result
+
+
+def _normalize_pocket_tts_options(options: Dict[str, Any]) -> Dict[str, Any]:
+    normalized: Dict[str, Any] = {}
+    for raw_key, value in options.items():
+        if raw_key is None:
+            continue
+        key = str(raw_key).strip().lower()
+        canonical = POCKET_TTS_OPTION_ALIASES.get(key)
+        if not canonical and key in POCKET_TTS_SETTING_KEYS:
+            canonical = key
+        if canonical and canonical in POCKET_TTS_SETTING_KEYS:
+            normalized[canonical] = value
+
+    result: Dict[str, Any] = {}
+    for key, value in normalized.items():
+        if key in {"pocket_tts_temp", "pocket_tts_noise_clamp", "pocket_tts_eos_threshold"}:
+            result[key] = None if value in (None, "") else _coerce_float(
+                value,
+                minimum=-10.0,
+                maximum=10.0,
+                fallback=DEFAULT_CONFIG.get(key),
+            )
+            continue
+        if key == "pocket_tts_lsd_decode_steps":
+            result[key] = _coerce_int(value, minimum=1, maximum=8, fallback=DEFAULT_CONFIG.get(key, 1))
+            continue
+        if key == "pocket_tts_prompt_truncate":
+            result[key] = _coerce_bool(value)
+            continue
+        if key in {"pocket_tts_num_threads", "pocket_tts_interop_threads"}:
+            result[key] = None if value in (None, "") else _coerce_int(
+                value,
+                minimum=1,
+                maximum=64,
+                fallback=DEFAULT_CONFIG.get(key),
+            )
+            continue
+        result[key] = (value or "").strip() if isinstance(value, str) else value
     return result
 
 
@@ -596,12 +691,17 @@ class JobCancelled(Exception):
     """Raised when a job is cancelled mid-processing."""
 
 
+class JobPaused(Exception):
+    """Raised when a job is paused after completing a chunk."""
+
+
 # Global state
 jobs = {}  # Track all jobs (queued, processing, completed)
 job_queue = queue.Queue()  # Thread-safe job queue
 current_job_id = None  # Currently processing job
 cancel_flags = {}  # Cancellation flags for jobs
 cancel_events = {}  # Cancellation events for immediate job aborts
+pause_flags = {}  # Pause flags for jobs
 queue_lock = threading.Lock()  # Lock for thread-safe operations
 worker_thread = None  # Background worker thread
 tts_engine_instances: Dict[str, TtsEngineBase] = {}
@@ -706,6 +806,18 @@ def _normalize_voice_assignments_map(voice_assignments: Any) -> Dict[str, Dict[s
     return normalized
 
 
+def _prepare_voice_assignments(text: str, voice_assignments: Any) -> Dict[str, Dict[str, Any]]:
+    normalized = _normalize_voice_assignments_map(voice_assignments)
+    if not normalized:
+        return {}
+    if "default" not in normalized and len(normalized) == 1:
+        normalized["default"] = next(iter(normalized.values()))
+    speakers = _extract_speakers_for_text(text)
+    if "default" in speakers and "default" not in normalized:
+        normalized["default"] = next(iter(normalized.values()))
+    return normalized
+
+
 def _extract_speakers_for_text(text: str) -> List[str]:
     processor = TextProcessor()
     speakers = processor.extract_speakers(text)
@@ -748,6 +860,11 @@ def _validate_voice_assignments_for_engine(
         if engine_name == "qwen3_clone":
             default_prompt = (config.get("qwen3_clone_default_prompt") or "").strip()
             if not prompt and not default_prompt:
+                missing_prompts.append(speaker)
+
+        if engine_name in {"pocket_tts", "pocket_tts_preset"}:
+            default_prompt = (config.get("pocket_tts_default_prompt") or "").strip()
+            if not prompt and not voice and not default_prompt:
                 missing_prompts.append(speaker)
 
     if missing_voices or missing_prompts:
@@ -948,6 +1065,19 @@ def _persist_chunks_metadata(job_id: str, job_dir: Path):
         json.dump(chunks_meta, handle, indent=2)
 
 
+def _load_chunks_metadata(job_dir: Path) -> List[Dict[str, Any]]:
+    chunks_meta_path = job_dir / "chunks_metadata.json"
+    if not chunks_meta_path.exists():
+        return []
+    try:
+        with chunks_meta_path.open("r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+        chunks = payload.get("chunks") if isinstance(payload, dict) else None
+        return [dict(item) for item in (chunks or []) if isinstance(item, dict)]
+    except Exception:
+        return []
+
+
 def _schedule_chunk_regeneration(
     job_id: str,
     chunk_id: str,
@@ -1007,6 +1137,334 @@ def invalidate_library_cache():
     """Clear cached library listing so next request reloads from disk."""
     library_cache["items"] = None
     library_cache["timestamp"] = 0.0
+
+
+def _get_jobs_db_connection() -> sqlite3.Connection:
+    conn = sqlite3.connect(JOBS_DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def _init_jobs_db() -> None:
+    with _get_jobs_db_connection() as conn:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS jobs (
+                job_id TEXT PRIMARY KEY,
+                status TEXT,
+                created_at TEXT,
+                updated_at TEXT,
+                text_preview TEXT,
+                text_path TEXT,
+                text_length INTEGER,
+                engine TEXT,
+                split_by_chapter INTEGER,
+                generate_full_story INTEGER,
+                review_mode INTEGER,
+                custom_heading TEXT,
+                merge_options TEXT,
+                voice_assignments TEXT,
+                config_snapshot TEXT,
+                job_dir TEXT,
+                total_chunks INTEGER,
+                processed_chunks INTEGER,
+                progress INTEGER,
+                eta_seconds INTEGER,
+                post_process_total INTEGER,
+                post_process_done INTEGER,
+                post_process_percent INTEGER,
+                post_process_active INTEGER,
+                chapter_mode INTEGER,
+                chapter_count INTEGER,
+                book_mode INTEGER,
+                book_count INTEGER,
+                full_story_requested INTEGER,
+                paused_at TEXT,
+                interrupted_at TEXT,
+                last_completed_chunk_index INTEGER,
+                resume_from_chunk_index INTEGER,
+                archived INTEGER DEFAULT 0,
+                error TEXT,
+                job_payload TEXT
+            )
+            """
+        )
+        conn.commit()
+
+
+def _job_text_dir(job_id: str) -> Path:
+    job_dir = JOBS_DATA_DIR / job_id
+    job_dir.mkdir(parents=True, exist_ok=True)
+    return job_dir
+
+
+def _write_job_text(job_id: str, text: str) -> str:
+    job_dir = _job_text_dir(job_id)
+    text_path = job_dir / "input.txt"
+    text_path.write_text(text or "", encoding="utf-8")
+    return str(text_path)
+
+
+def _load_job_text(text_path: Optional[str]) -> str:
+    if not text_path:
+        return ""
+    try:
+        return Path(text_path).read_text(encoding="utf-8")
+    except Exception:
+        return ""
+
+
+def _serialize_job_payload(job_entry: Dict[str, Any]) -> Dict[str, Any]:
+    payload = job_entry.get("job_payload") or {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _serialize_job_entry(job_id: str, job_entry: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "job_id": job_id,
+        "status": job_entry.get("status"),
+        "created_at": job_entry.get("created_at"),
+        "updated_at": datetime.now().isoformat(),
+        "text_preview": job_entry.get("text_preview"),
+        "text_path": job_entry.get("text_path"),
+        "text_length": job_entry.get("text_length"),
+        "engine": job_entry.get("engine"),
+        "split_by_chapter": int(bool(job_entry.get("chapter_mode"))),
+        "generate_full_story": int(bool(job_entry.get("full_story_requested"))),
+        "review_mode": int(bool(job_entry.get("review_mode"))),
+        "custom_heading": job_entry.get("custom_heading"),
+        "merge_options": json.dumps(job_entry.get("merge_options") or {}),
+        "voice_assignments": json.dumps(job_entry.get("voice_assignments") or {}),
+        "config_snapshot": json.dumps(job_entry.get("config_snapshot") or {}),
+        "job_dir": job_entry.get("job_dir"),
+        "total_chunks": job_entry.get("total_chunks"),
+        "processed_chunks": job_entry.get("processed_chunks"),
+        "progress": job_entry.get("progress"),
+        "eta_seconds": job_entry.get("eta_seconds"),
+        "post_process_total": job_entry.get("post_process_total"),
+        "post_process_done": job_entry.get("post_process_done"),
+        "post_process_percent": job_entry.get("post_process_percent"),
+        "post_process_active": int(bool(job_entry.get("post_process_active"))),
+        "chapter_mode": int(bool(job_entry.get("chapter_mode"))),
+        "chapter_count": job_entry.get("chapter_count"),
+        "book_mode": int(bool(job_entry.get("book_mode"))),
+        "book_count": job_entry.get("book_count"),
+        "full_story_requested": int(bool(job_entry.get("full_story_requested"))),
+        "paused_at": job_entry.get("paused_at"),
+        "interrupted_at": job_entry.get("interrupted_at"),
+        "last_completed_chunk_index": job_entry.get("last_completed_chunk_index"),
+        "resume_from_chunk_index": job_entry.get("resume_from_chunk_index"),
+        "archived": int(bool(job_entry.get("archived"))),
+        "error": job_entry.get("error"),
+        "job_payload": json.dumps(_serialize_job_payload(job_entry)),
+    }
+
+
+def _persist_job_state(job_id: str, job_entry: Optional[Dict[str, Any]] = None, force: bool = False) -> None:
+    with queue_lock:
+        entry = job_entry or jobs.get(job_id)
+        if not entry:
+            return
+        now = time.monotonic()
+        last_persisted = entry.get("_last_persisted")
+        if not force and last_persisted and (now - last_persisted) < 2:
+            return
+        entry["_last_persisted"] = now
+        payload = _serialize_job_entry(job_id, entry)
+
+    with _get_jobs_db_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO jobs (
+                job_id, status, created_at, updated_at, text_preview, text_path, text_length, engine,
+                split_by_chapter, generate_full_story, review_mode, custom_heading, merge_options,
+                voice_assignments, config_snapshot, job_dir, total_chunks, processed_chunks, progress,
+                eta_seconds, post_process_total, post_process_done, post_process_percent, post_process_active,
+                chapter_mode, chapter_count, book_mode, book_count, full_story_requested, paused_at,
+                interrupted_at, last_completed_chunk_index, resume_from_chunk_index, archived, error, job_payload
+            ) VALUES (
+                :job_id, :status, :created_at, :updated_at, :text_preview, :text_path, :text_length, :engine,
+                :split_by_chapter, :generate_full_story, :review_mode, :custom_heading, :merge_options,
+                :voice_assignments, :config_snapshot, :job_dir, :total_chunks, :processed_chunks, :progress,
+                :eta_seconds, :post_process_total, :post_process_done, :post_process_percent, :post_process_active,
+                :chapter_mode, :chapter_count, :book_mode, :book_count, :full_story_requested, :paused_at,
+                :interrupted_at, :last_completed_chunk_index, :resume_from_chunk_index, :archived, :error, :job_payload
+            )
+            ON CONFLICT(job_id) DO UPDATE SET
+                status=excluded.status,
+                updated_at=excluded.updated_at,
+                text_preview=excluded.text_preview,
+                text_path=excluded.text_path,
+                text_length=excluded.text_length,
+                engine=excluded.engine,
+                split_by_chapter=excluded.split_by_chapter,
+                generate_full_story=excluded.generate_full_story,
+                review_mode=excluded.review_mode,
+                custom_heading=excluded.custom_heading,
+                merge_options=excluded.merge_options,
+                voice_assignments=excluded.voice_assignments,
+                config_snapshot=excluded.config_snapshot,
+                job_dir=excluded.job_dir,
+                total_chunks=excluded.total_chunks,
+                processed_chunks=excluded.processed_chunks,
+                progress=excluded.progress,
+                eta_seconds=excluded.eta_seconds,
+                post_process_total=excluded.post_process_total,
+                post_process_done=excluded.post_process_done,
+                post_process_percent=excluded.post_process_percent,
+                post_process_active=excluded.post_process_active,
+                chapter_mode=excluded.chapter_mode,
+                chapter_count=excluded.chapter_count,
+                book_mode=excluded.book_mode,
+                book_count=excluded.book_count,
+                full_story_requested=excluded.full_story_requested,
+                paused_at=excluded.paused_at,
+                interrupted_at=excluded.interrupted_at,
+                last_completed_chunk_index=excluded.last_completed_chunk_index,
+                resume_from_chunk_index=excluded.resume_from_chunk_index,
+                archived=excluded.archived,
+                error=excluded.error,
+                job_payload=excluded.job_payload
+            """,
+            payload,
+        )
+        conn.commit()
+
+
+def _load_jobs_from_db() -> Dict[str, Dict[str, Any]]:
+    loaded: Dict[str, Dict[str, Any]] = {}
+    with _get_jobs_db_connection() as conn:
+        rows = conn.execute("SELECT * FROM jobs").fetchall()
+    for row in rows:
+        job_id = row["job_id"]
+        loaded[job_id] = {
+            "status": row["status"],
+            "created_at": row["created_at"],
+            "text_preview": row["text_preview"],
+            "text_path": row["text_path"],
+            "text_length": row["text_length"],
+            "engine": row["engine"],
+            "chapter_mode": bool(row["chapter_mode"]),
+            "full_story_requested": bool(row["full_story_requested"]),
+            "review_mode": bool(row["review_mode"]),
+            "custom_heading": row["custom_heading"],
+            "merge_options": json.loads(row["merge_options"] or "{}"),
+            "voice_assignments": json.loads(row["voice_assignments"] or "{}"),
+            "config_snapshot": json.loads(row["config_snapshot"] or "{}"),
+            "job_dir": row["job_dir"],
+            "total_chunks": row["total_chunks"],
+            "processed_chunks": row["processed_chunks"],
+            "progress": row["progress"],
+            "eta_seconds": row["eta_seconds"],
+            "post_process_total": row["post_process_total"],
+            "post_process_done": row["post_process_done"],
+            "post_process_percent": row["post_process_percent"],
+            "post_process_active": bool(row["post_process_active"]),
+            "chapter_count": row["chapter_count"],
+            "book_mode": bool(row["book_mode"]),
+            "book_count": row["book_count"],
+            "paused_at": row["paused_at"],
+            "interrupted_at": row["interrupted_at"],
+            "last_completed_chunk_index": row["last_completed_chunk_index"],
+            "resume_from_chunk_index": row["resume_from_chunk_index"],
+            "archived": bool(row["archived"]),
+            "error": row["error"],
+            "job_payload": json.loads(row["job_payload"] or "{}"),
+            "chunks": [],
+            "regen_tasks": {},
+        }
+    return loaded
+
+
+def _archive_old_jobs(max_jobs: int = 500) -> None:
+    with _get_jobs_db_connection() as conn:
+        row = conn.execute("SELECT COUNT(*) AS cnt FROM jobs WHERE archived=0").fetchone()
+        count = int(row["cnt"] or 0) if row else 0
+        if count <= max_jobs:
+            return
+        to_archive = conn.execute(
+            "SELECT job_id FROM jobs WHERE archived=0 ORDER BY created_at ASC LIMIT ?",
+            (count - max_jobs,),
+        ).fetchall()
+    for row in to_archive:
+        job_id = row["job_id"]
+        job_audio_dir = OUTPUT_DIR / job_id
+        job_data_dir = JOBS_DATA_DIR / job_id
+        archive_root = JOBS_ARCHIVE_DIR / job_id
+        try:
+            archive_root.mkdir(parents=True, exist_ok=True)
+            if job_audio_dir.exists():
+                shutil.move(str(job_audio_dir), str(archive_root / "audio"))
+            if job_data_dir.exists():
+                shutil.move(str(job_data_dir), str(archive_root / "data"))
+            with _get_jobs_db_connection() as conn:
+                conn.execute(
+                    "UPDATE jobs SET archived=1, status='archived' WHERE job_id=?",
+                    (job_id,),
+                )
+                conn.commit()
+        except Exception as exc:
+            logger.warning("Failed to archive job %s: %s", job_id, exc)
+
+
+def _build_job_payload(job_id: str, text: str, job_entry: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "job_id": job_id,
+        "text_path": job_entry.get("text_path"),
+        "voice_assignments": job_entry.get("voice_assignments") or {},
+        "config_snapshot": job_entry.get("config_snapshot") or {},
+        "split_by_chapter": bool(job_entry.get("chapter_mode")),
+        "generate_full_story": bool(job_entry.get("full_story_requested")),
+        "review_mode": bool(job_entry.get("review_mode")),
+        "merge_options": job_entry.get("merge_options") or {},
+        "job_dir": job_entry.get("job_dir"),
+        "custom_heading": job_entry.get("custom_heading"),
+        "total_chunks": job_entry.get("total_chunks"),
+        "engine": job_entry.get("engine"),
+        "text_preview": (text or "")[:200],
+    }
+
+
+def _build_job_data_from_entry(job_id: str, job_entry: Dict[str, Any]) -> Dict[str, Any]:
+    payload = job_entry.get("job_payload") or {}
+    text_path = payload.get("text_path") or job_entry.get("text_path")
+    text = _load_job_text(text_path)
+    config = job_entry.get("config_snapshot") or load_config()
+    return {
+        "job_id": job_id,
+        "text": text,
+        "voice_assignments": job_entry.get("voice_assignments") or {},
+        "config": config,
+        "split_by_chapter": bool(job_entry.get("chapter_mode")),
+        "generate_full_story": bool(job_entry.get("full_story_requested")),
+        "total_chunks": job_entry.get("total_chunks") or 0,
+        "review_mode": bool(job_entry.get("review_mode")),
+        "merge_options": job_entry.get("merge_options") or {},
+        "job_dir": job_entry.get("job_dir"),
+        "custom_heading": job_entry.get("custom_heading"),
+        "resume_from_chunk_index": job_entry.get("resume_from_chunk_index") or 0,
+    }
+
+
+def _restore_jobs_from_db() -> None:
+    loaded = _load_jobs_from_db()
+    with queue_lock:
+        jobs.clear()
+        jobs.update(loaded)
+        for job_id, job_entry in jobs.items():
+            status = job_entry.get("status")
+            if status in {"processing", "queued", "pausing"}:
+                if status == "processing":
+                    job_entry["status"] = "interrupted"
+                    job_entry["interrupted_at"] = datetime.now().isoformat()
+                    last_completed = job_entry.get("last_completed_chunk_index")
+                    if last_completed is not None:
+                        job_entry["resume_from_chunk_index"] = max(0, int(last_completed) + 1)
+                else:
+                    job_entry["status"] = "paused"
+                job_entry["eta_seconds"] = None
+    for job_id in loaded.keys():
+        _persist_job_state(job_id, force=True)
 
 
 def _normalize_engine_name(name: Optional[str]) -> str:
@@ -1170,6 +1628,19 @@ def _engine_signature(engine_name: str, config: Dict) -> str:
             (config.get("qwen3_clone_default_prompt_text") or "").strip(),
         )
         return f"{engine_name}::{'|'.join(parts)}"
+    if engine_name in {"pocket_tts", "pocket_tts_preset"}:
+        parts = (
+            (config.get("pocket_tts_model_variant") or "").strip(),
+            str(config.get("pocket_tts_temp")),
+            str(config.get("pocket_tts_lsd_decode_steps")),
+            str(config.get("pocket_tts_noise_clamp")),
+            str(config.get("pocket_tts_eos_threshold")),
+            (config.get("pocket_tts_default_prompt") or "").strip(),
+            str(bool(config.get("pocket_tts_prompt_truncate", False))),
+            str(config.get("pocket_tts_num_threads")),
+            str(config.get("pocket_tts_interop_threads")),
+        )
+        return f"{engine_name}::{'|'.join(parts)}"
     if engine_name == "kokoro_replicate":
         parts = (
             (config.get("replicate_api_key") or "").strip(),
@@ -1276,6 +1747,23 @@ def _create_engine(engine_name: str, config: Dict) -> TtsEngineBase:
             default_language=(config.get("qwen3_clone_default_language") or "Auto").strip() or "Auto",
             default_prompt=(config.get("qwen3_clone_default_prompt") or "").strip() or None,
             default_prompt_text=(config.get("qwen3_clone_default_prompt_text") or "").strip() or None,
+        )
+
+    if engine_name in {"pocket_tts", "pocket_tts_preset"}:
+        if not POCKET_TTS_AVAILABLE:
+            raise ImportError("pocket-tts is not installed. Run setup to enable Pocket TTS.")
+        return get_engine(
+            "pocket_tts",
+            device="cpu",
+            model_variant=(config.get("pocket_tts_model_variant") or "b6369a24").strip(),
+            temp=float(config.get("pocket_tts_temp") or 0.7),
+            lsd_decode_steps=int(config.get("pocket_tts_lsd_decode_steps") or 1),
+            noise_clamp=config.get("pocket_tts_noise_clamp"),
+            eos_threshold=float(config.get("pocket_tts_eos_threshold") or -4.0),
+            default_prompt=(config.get("pocket_tts_default_prompt") or "").strip() or None,
+            prompt_truncate=bool(config.get("pocket_tts_prompt_truncate", False)),
+            num_threads=config.get("pocket_tts_num_threads"),
+            interop_threads=config.get("pocket_tts_interop_threads"),
         )
 
     if engine_name == "kokoro_replicate":
@@ -1769,6 +2257,33 @@ def _create_text_processor_for_engine(engine_name: str, chunk_size: int, config:
             char_soft_limit=kokoro_chunk_size,
             char_hard_limit=kokoro_chunk_size + 50,
         )
+    if _normalize_engine_name(engine_name) in {"pocket_tts", "pocket_tts_preset"}:
+        pocket_chunk_size = 450
+        if config:
+            pocket_chunk_size = config.get("pocket_tts_chunk_size", pocket_chunk_size)
+        return TextProcessor(
+            chunk_strategy="characters",
+            char_soft_limit=pocket_chunk_size,
+            char_hard_limit=pocket_chunk_size + 50,
+        )
+    if _normalize_engine_name(engine_name) in {"qwen3_custom", "qwen3_clone"}:
+        qwen_chunk_size = 500
+        if config:
+            qwen_chunk_size = config.get("qwen3_chunk_size", qwen_chunk_size)
+        return TextProcessor(
+            chunk_strategy="characters",
+            char_soft_limit=qwen_chunk_size,
+            char_hard_limit=qwen_chunk_size + 50,
+        )
+    if _normalize_engine_name(engine_name) == "voxcpm_local":
+        voxcpm_chunk_size = 550
+        if config:
+            voxcpm_chunk_size = config.get("voxcpm_chunk_size", voxcpm_chunk_size)
+        return TextProcessor(
+            chunk_strategy="characters",
+            char_soft_limit=voxcpm_chunk_size,
+            char_hard_limit=voxcpm_chunk_size + 50,
+        )
     return TextProcessor(chunk_size=chunk_size)
 
 
@@ -1851,14 +2366,25 @@ def process_job_worker():
                 logger.info(f"Job {job_id} was cancelled before processing")
                 with queue_lock:
                     jobs[job_id]['status'] = 'cancelled'
+                _persist_job_state(job_id)
                 job_queue.task_done()
                 continue
+
+            with queue_lock:
+                job_entry = jobs.get(job_id)
+                if not job_entry:
+                    job_queue.task_done()
+                    continue
+                if job_entry.get("status") in {"paused", "archived", "deleted"}:
+                    job_queue.task_done()
+                    continue
             
             # Set as current job
             with queue_lock:
                 current_job_id = job_id
                 jobs[job_id]['status'] = 'processing'
                 jobs[job_id]['started_at'] = datetime.now().isoformat()
+            _persist_job_state(job_id)
             
             logger.info(f"Processing job {job_id}")
             
@@ -1917,9 +2443,26 @@ def process_audio_job(job_data):
             if job_entry is not None:
                 job_entry['job_dir'] = str(job_dir)
         total_chunks = max(1, job_data.get('total_chunks') or jobs.get(job_id, {}).get('total_chunks') or 1)
-        processed_chunks = 0
+        resume_from_chunk_index = int(job_data.get("resume_from_chunk_index") or 0)
+        processed_chunks = max(0, min(resume_from_chunk_index, total_chunks))
         job_start_time = datetime.now()
         cancel_event = cancel_events.setdefault(job_id, threading.Event())
+        remaining_skip = processed_chunks
+
+        with queue_lock:
+            job_entry = jobs.get(job_id)
+            if job_entry is not None:
+                if not job_entry.get("chunks"):
+                    existing_chunks = _load_chunks_metadata(job_dir)
+                    if existing_chunks:
+                        job_entry["chunks"] = existing_chunks
+                job_entry["resume_from_chunk_index"] = resume_from_chunk_index
+                if resume_from_chunk_index > 0:
+                    job_entry["last_completed_chunk_index"] = resume_from_chunk_index - 1
+                job_entry["processed_chunks"] = processed_chunks
+                job_entry["total_chunks"] = total_chunks
+                job_entry["progress"] = int((processed_chunks / total_chunks) * 100) if total_chunks else 0
+        _persist_job_state(job_id)
 
         def update_progress(increment: int = 1):
             if cancel_flags.get(job_id, False):
@@ -1946,6 +2489,17 @@ def process_audio_job(job_data):
                     job_entry['progress'] = percent if job_entry.get('status') != 'completed' else 100
                     job_entry['eta_seconds'] = eta_seconds
                     job_entry['last_update'] = datetime.now().isoformat()
+                    if increment > 0:
+                        job_entry['last_completed_chunk_index'] = max(0, processed_chunks - 1)
+                        job_entry['resume_from_chunk_index'] = processed_chunks
+
+            _persist_job_state(job_id)
+
+            if pause_flags.get(job_id, False):
+                raise JobPaused()
+
+        def pause_cb() -> bool:
+            return bool(pause_flags.get(job_id, False))
 
         def init_post_process(total_steps: int):
             with queue_lock:
@@ -2040,6 +2594,10 @@ def process_audio_job(job_data):
         logger.info("Job %s: Engine device = %s", job_id, getattr(engine, 'device', 'unknown'))
 
         job_chunks: List[Dict[str, Any]] = []
+        with queue_lock:
+            existing_job_chunks = list(jobs.get(job_id, {}).get("chunks") or [])
+        if existing_job_chunks:
+            job_chunks = existing_job_chunks
 
         def register_chunk(chapter_idx: int, chunk_idx: int, segment: Dict[str, Any], file_path: str):
             chunk_id = f"{chapter_idx}-{chunk_idx}-{len(job_chunks)}"
@@ -2086,12 +2644,35 @@ def process_audio_job(job_data):
                 raise JobCancelled()
             return result
 
+        def _apply_chunk_skip(segments: List[Dict[str, Any]], skip_count: int) -> tuple[List[Dict[str, Any]], int]:
+            remaining = skip_count
+            filtered: List[Dict[str, Any]] = []
+            for segment in segments:
+                chunks = segment.get("chunks") or []
+                if remaining >= len(chunks):
+                    remaining -= len(chunks)
+                    continue
+                if remaining > 0:
+                    chunks = chunks[remaining:]
+                    remaining = 0
+                if chunks:
+                    updated = dict(segment)
+                    updated["chunks"] = chunks
+                    filtered.append(updated)
+            return filtered, skip_count - remaining
+
         def generate_chunks(chapter_idx: int, section_text: str, output_dir: Path):
             if cancel_flags.get(job_id, False):
                 raise JobCancelled()
             segments = processor.process_text(section_text)
             if not segments:
                 return []
+            nonlocal remaining_skip
+            if remaining_skip > 0:
+                segments, skipped = _apply_chunk_skip(segments, remaining_skip)
+                remaining_skip = max(0, remaining_skip - skipped)
+                if not segments:
+                    return []
             output_dir.mkdir(parents=True, exist_ok=True)
             chunk_cb = make_chunk_callback(chapter_idx)
             supports_chunk_cb = False
@@ -2124,7 +2705,9 @@ def process_audio_job(job_data):
                 engine_kwargs["chunk_cb"] = chunk_cb
                 supports_chunk_cb = True
             if "parallel_workers" in sig_params:
-                engine_kwargs["parallel_workers"] = max(1, min(10, int(config.get("parallel_chunks", 1) or 1)))
+                engine_kwargs["parallel_workers"] = max(1, min(8, int(config.get("parallel_chunks", 1) or 1)))
+            if "pause_cb" in sig_params:
+                engine_kwargs["pause_cb"] = pause_cb
             if "group_by_speaker" in sig_params:
                 engine_kwargs["group_by_speaker"] = bool(config.get("group_chunks_by_speaker", False))
             audio_files = run_with_cancel(lambda: engine.generate_batch(**engine_kwargs))
@@ -2458,9 +3041,11 @@ def process_audio_job(job_data):
             jobs[job_id]['chapter_outputs'] = chapter_outputs
             jobs[job_id]['chapter_mode'] = split_by_chapter
             jobs[job_id]['full_story_requested'] = generate_full_story
+            jobs[job_id]['resume_from_chunk_index'] = total_chunks
             if full_story_entry:
                 jobs[job_id]['full_story'] = full_story_entry
             jobs[job_id]['completed_at'] = datetime.now().isoformat()
+        _persist_job_state(job_id, force=True)
 
         
         logger.info(f"Job {job_id} completed successfully with {len(chapter_outputs)} output file(s)")
@@ -2469,6 +3054,17 @@ def process_audio_job(job_data):
         if config.get("cleanup_vram_after_job", False):
             _cleanup_engine_vram(engine_name)
         
+    except JobPaused:
+        logger.info(f"Job {job_id} paused – stopping after current chunk")
+        with queue_lock:
+            job_entry = jobs.get(job_id)
+            if job_entry:
+                job_entry['status'] = 'paused'
+                job_entry['paused_at'] = datetime.now().isoformat()
+                job_entry['eta_seconds'] = None
+                job_entry['last_update'] = datetime.now().isoformat()
+        _persist_job_state(job_id, force=True)
+        return
     except JobCancelled:
         logger.info(f"Job {job_id} cancelled – halting synthesis")
         with queue_lock:
@@ -2477,16 +3073,20 @@ def process_audio_job(job_data):
                 job_entry['status'] = 'cancelled'
                 job_entry['eta_seconds'] = None
                 job_entry['last_update'] = datetime.now().isoformat()
+        _persist_job_state(job_id, force=True)
         return
     except Exception as e:
         logger.error(f"Error in job {job_id}: {e}", exc_info=True)
         with queue_lock:
             jobs[job_id]['status'] = 'failed'
             jobs[job_id]['error'] = str(e)
+            jobs[job_id]['interrupted_at'] = datetime.now().isoformat()
+        _persist_job_state(job_id, force=True)
         raise
     finally:
         cancel_flags.pop(job_id, None)
         cancel_events.pop(job_id, None)
+        pause_flags.pop(job_id, None)
 
 
 def _enqueue_qwen3_voice_design_task(task_type: str, payload: Dict[str, Any]) -> str:
@@ -2723,6 +3323,15 @@ def get_voices():
         "missing_samples": missing,
         "total_unique_voices": voice_manager.total_unique_voice_count(),
         "sample_count": voice_manager.sample_count()
+    })
+
+
+@app.route('/api/pocket-tts/voices', methods=['GET'])
+def get_pocket_tts_voices():
+    """Return built-in Pocket TTS preset voices."""
+    return jsonify({
+        "success": True,
+        "voices": POCKET_TTS_PRESET_VOICES,
     })
 
 
@@ -4477,6 +5086,119 @@ def analyze_text():
         }), 500
 
 
+@app.route('/api/jobs/<job_id>/delete', methods=['DELETE'])
+def delete_job(job_id: str):
+    """Delete a job from the queue and remove its files."""
+    try:
+        with queue_lock:
+            job_entry = jobs.get(job_id)
+            if not job_entry:
+                return jsonify({"success": False, "error": "Job not found"}), 404
+            status = job_entry.get("status")
+            if status in {"processing", "pausing"}:
+                return jsonify({
+                    "success": False,
+                    "error": "Job is currently processing. Pause or cancel it before deleting.",
+                }), 409
+            job_entry["status"] = "deleted"
+            cancel_flags[job_id] = True
+            pause_flags.pop(job_id, None)
+            cancel_events.pop(job_id, None)
+
+        job_dir = _job_dir_from_entry(job_id, job_entry)
+        job_data_dir = JOBS_DATA_DIR / job_id
+        archive_dir = JOBS_ARCHIVE_DIR / job_id
+        for path in [job_dir, job_data_dir, archive_dir]:
+            if path.exists():
+                shutil.rmtree(path, onerror=handle_remove_readonly)
+
+        with _get_jobs_db_connection() as conn:
+            conn.execute("DELETE FROM jobs WHERE job_id=?", (job_id,))
+            conn.commit()
+
+        with queue_lock:
+            jobs.pop(job_id, None)
+        invalidate_library_cache()
+        return jsonify({"success": True})
+    except Exception as e:
+        logger.error("Error deleting job %s: %s", job_id, e, exc_info=True)
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/jobs/<job_id>/pause', methods=['POST'])
+def pause_job(job_id: str):
+    try:
+        with queue_lock:
+            job_entry = jobs.get(job_id)
+            if not job_entry:
+                return jsonify({"success": False, "error": "Job not found"}), 404
+            if job_entry.get("status") not in {"queued", "processing"}:
+                return jsonify({"success": False, "error": "Job is not running"}), 409
+            pause_flags[job_id] = True
+            job_entry["status"] = "pausing" if job_entry.get("status") == "processing" else "paused"
+            if job_entry["status"] == "paused":
+                job_entry["paused_at"] = datetime.now().isoformat()
+        _persist_job_state(job_id, force=True)
+        return jsonify({"success": True})
+    except Exception as exc:
+        logger.error("Failed to pause job %s: %s", job_id, exc, exc_info=True)
+        return jsonify({"success": False, "error": "Failed to pause job"}), 500
+
+
+@app.route('/api/jobs/<job_id>/resume', methods=['POST'])
+def resume_job(job_id: str):
+    try:
+        start_worker_thread()
+        with queue_lock:
+            job_entry = jobs.get(job_id)
+            if not job_entry:
+                return jsonify({"success": False, "error": "Job not found"}), 404
+            if job_entry.get("status") not in {"paused", "interrupted"}:
+                return jsonify({"success": False, "error": "Job is not paused"}), 409
+            pause_flags.pop(job_id, None)
+            resume_from = job_entry.get("resume_from_chunk_index")
+            if resume_from is None:
+                resume_from = job_entry.get("processed_chunks") or 0
+            job_entry["resume_from_chunk_index"] = int(resume_from or 0)
+            job_entry["status"] = "queued"
+            job_entry["paused_at"] = None
+            job_entry["interrupted_at"] = None
+        job_data = _build_job_data_from_entry(job_id, job_entry)
+        job_queue.put(job_data)
+        _persist_job_state(job_id, force=True)
+        return jsonify({"success": True})
+    except Exception as exc:
+        logger.error("Failed to resume job %s: %s", job_id, exc, exc_info=True)
+        return jsonify({"success": False, "error": "Failed to resume job"}), 500
+
+
+@app.route('/api/jobs/<job_id>/details', methods=['GET'])
+def get_job_details(job_id: str):
+    try:
+        with queue_lock:
+            job_entry = jobs.get(job_id)
+            if not job_entry:
+                return jsonify({"success": False, "error": "Job not found"}), 404
+            text = _load_job_text(job_entry.get("text_path"))
+            payload = {
+                "job_id": job_id,
+                "status": job_entry.get("status"),
+                "created_at": job_entry.get("created_at"),
+                "engine": job_entry.get("engine"),
+                "speakers": job_entry.get("speakers") or _extract_speakers_for_text(text),
+                "text": text,
+                "voice_assignments": job_entry.get("voice_assignments") or {},
+                "chapter_mode": bool(job_entry.get("chapter_mode")),
+                "full_story_requested": bool(job_entry.get("full_story_requested")),
+                "resume_from_chunk_index": job_entry.get("resume_from_chunk_index"),
+                "last_completed_chunk_index": job_entry.get("last_completed_chunk_index"),
+            }
+        return jsonify({"success": True, "job": payload})
+    except Exception as exc:
+        logger.error("Failed to load job details %s: %s", job_id, exc, exc_info=True)
+        return jsonify({"success": False, "error": "Failed to load job details"}), 500
+
+
 @app.route('/api/sections/preview', methods=['POST'])
 def preview_section_detection():
     """Preview detected book/section structure for UI review."""
@@ -4484,12 +5206,15 @@ def preview_section_detection():
         data = request.json or {}
         text = (data.get('text') or '').strip()
         custom_heading = data.get('custom_heading')
+        voice_assignments = data.get('voice_assignments', {})
 
         if not text:
             return jsonify({
                 "success": False,
                 "error": "No text provided"
             }), 400
+
+        voice_assignments = _prepare_voice_assignments(text, voice_assignments)
 
         hierarchy = split_text_into_book_sections(text, custom_heading)
 
@@ -4896,7 +5621,7 @@ def generate_audio():
         # Ensure worker thread is running
         start_worker_thread()
         data = request.json or {}
-        text = data.get('text', '')
+        text = (data.get('text') or '').strip()
         voice_assignments = data.get('voice_assignments', {})
         logger.info("Received voice_assignments: %s", voice_assignments)
         split_by_chapter = bool(data.get('split_by_chapter', False))
@@ -4955,6 +5680,8 @@ def generate_audio():
         if requested_bitrate:
             config['output_bitrate_kbps'] = requested_bitrate
 
+        voice_assignments = _prepare_voice_assignments(text, voice_assignments)
+
         _validate_voice_assignments_for_engine(
             active_engine,
             text,
@@ -4964,6 +5691,9 @@ def generate_audio():
         
         # Create job
         job_id = str(uuid.uuid4())
+        text_path = _write_job_text(job_id, text)
+        text_length = len(text)
+        speakers = _extract_speakers_for_text(text)
         estimated_chunks = estimate_total_chunks(
             text,
             split_by_chapter,
@@ -4990,6 +5720,8 @@ def generate_audio():
             jobs[job_id] = {
                 "status": "queued",
                 "text_preview": text[:200],
+                "text_path": text_path,
+                "text_length": text_length,
                 "created_at": datetime.now().isoformat(),
                 "review_mode": review_mode,
                 "chapter_mode": split_by_chapter,
@@ -5000,10 +5732,12 @@ def generate_audio():
                 "voice_assignments": voice_assignments,
                 "config_snapshot": copy.deepcopy(config),
                 "custom_heading": custom_heading,
-                "source_text": text,
+                "speakers": speakers,
                 "regen_tasks": {},
                 "engine": config.get("tts_engine"),
+                "resume_from_chunk_index": 0,
             }
+            jobs[job_id]["job_payload"] = _build_job_payload(job_id, text, jobs[job_id])
         
         # Create job data
         job_data = {
@@ -5018,7 +5752,11 @@ def generate_audio():
             "merge_options": merge_options,
             "job_dir": job_dir,
             "custom_heading": custom_heading,
+            "resume_from_chunk_index": 0,
         }
+
+        _persist_job_state(job_id, force=True)
+        _archive_old_jobs()
 
         # Add to queue
         job_queue.put(job_data)
@@ -6044,6 +6782,7 @@ def cancel_job(job_id):
             jobs[job_id]["status"] = "cancelled"
             jobs[job_id]["progress"] = 0
             jobs[job_id]["cancelled_at"] = datetime.now().isoformat()
+        _persist_job_state(job_id, force=True)
         
         logger.info(f"Job {job_id} marked for cancellation")
         
@@ -6081,6 +6820,11 @@ def get_queue():
                         "eta_seconds": job_info.get("eta_seconds"),
                         "chapter_mode": job_info.get("chapter_mode", False),
                         "chapter_count": job_info.get("chapter_count"),
+                        "book_mode": job_info.get("book_mode", False),
+                        "book_count": job_info.get("book_count"),
+                        "resume_from_chunk_index": job_info.get("resume_from_chunk_index"),
+                        "last_completed_chunk_index": job_info.get("last_completed_chunk_index"),
+                        "interrupted_at": job_info.get("interrupted_at"),
                         "full_story_requested": job_info.get("full_story_requested", False),
                         "review_mode": job_info.get("review_mode", False),
                         "review_has_active_regen": job_info.get("review_mode", False) and _has_active_regen_tasks(job_info),
@@ -6181,6 +6925,7 @@ def health_check():
         "tts_engine": config.get('tts_engine', 'kokoro'),
         "kokoro_available": KOKORO_AVAILABLE,
         "qwen3_available": QWEN3_AVAILABLE,
+        "pocket_tts_available": POCKET_TTS_AVAILABLE,
         "cuda_available": False if not KOKORO_AVAILABLE else __import__('torch').cuda.is_available(),
         "vram": vram_info,
         "loaded_engines": list(tts_engine_instances.keys()),
@@ -6361,6 +7106,9 @@ def _cleanup_orphaned_regen_folders():
 
 if __name__ == '__main__':
     logger.info("Starting TTS-Story server")
+    _init_jobs_db()
+    _restore_jobs_from_db()
+    _archive_old_jobs()
     _cleanup_orphaned_chatterbox_voices()
     _cleanup_orphaned_regen_folders()
     app.run(host='0.0.0.0', port=5000, debug=True)

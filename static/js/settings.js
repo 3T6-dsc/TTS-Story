@@ -293,8 +293,10 @@ function toggleEngineSettingsSections(engineName) {
         'chatterbox_turbo_local': 'chatterbox-local',
         'chatterbox_turbo_replicate': 'chatterbox-replicate',
         'voxcpm_local': 'voxcpm',
+        'pocket_tts': 'pocket-tts',
         'qwen3_custom': 'qwen3',
-        'qwen3_clone': 'qwen3'
+        'qwen3_clone': 'qwen3',
+        'api_keys': 'api-keys'
     };
     
     const targetTab = engineTabMap[engineName];
@@ -522,6 +524,7 @@ function applySettings(settings) {
     
     // Chunk size
     setElementValue('chunk-size', settings.chunk_size ?? 500, 500);
+    setElementValue('kokoro-chunk-size', settings.kokoro_chunk_size ?? 500, 500);
     
     // Speed
     const speed = settings.speed || 1.0;
@@ -725,6 +728,44 @@ function applySettings(settings) {
         qwen3ClonePromptText.value = settings.qwen3_clone_default_prompt_text || '';
     }
 
+    // Pocket TTS settings
+    const pocketVariant = document.getElementById('pocket-tts-model-variant');
+    if (pocketVariant) {
+        pocketVariant.value = settings.pocket_tts_model_variant || 'b6369a24';
+    }
+    const pocketTemp = document.getElementById('pocket-tts-temp');
+    if (pocketTemp) {
+        pocketTemp.value = settings.pocket_tts_temp ?? 0.7;
+    }
+    const pocketSteps = document.getElementById('pocket-tts-steps');
+    if (pocketSteps) {
+        pocketSteps.value = settings.pocket_tts_lsd_decode_steps ?? 1;
+    }
+    const pocketNoise = document.getElementById('pocket-tts-noise-clamp');
+    if (pocketNoise) {
+        pocketNoise.value = settings.pocket_tts_noise_clamp ?? '';
+    }
+    const pocketEos = document.getElementById('pocket-tts-eos');
+    if (pocketEos) {
+        pocketEos.value = settings.pocket_tts_eos_threshold ?? -4.0;
+    }
+    const pocketPrompt = document.getElementById('pocket-tts-default-prompt');
+    if (pocketPrompt) {
+        pocketPrompt.value = settings.pocket_tts_default_prompt || '';
+    }
+    const pocketTruncate = document.getElementById('pocket-tts-prompt-truncate');
+    if (pocketTruncate) {
+        pocketTruncate.checked = settings.pocket_tts_prompt_truncate === true;
+    }
+    const pocketThreads = document.getElementById('pocket-tts-num-threads');
+    if (pocketThreads) {
+        pocketThreads.value = settings.pocket_tts_num_threads ?? '';
+    }
+    const pocketInterop = document.getElementById('pocket-tts-interop-threads');
+    if (pocketInterop) {
+        pocketInterop.value = settings.pocket_tts_interop_threads ?? '';
+    }
+
     // Chatterbox Replicate settings (uses shared replicate_api_key)
     const turboModelInput = document.getElementById('chatterbox-turbo-replicate-model');
     if (turboModelInput) {
@@ -771,12 +812,13 @@ async function saveSettings() {
     const settings = {
         replicate_api_key: kokoroReplicateKeyEl ? kokoroReplicateKeyEl.value : '',
         chunk_size: parseInt(document.getElementById('chunk-size').value),
+        kokoro_chunk_size: parseInt(document.getElementById('kokoro-chunk-size')?.value, 10) || 500,
         speed: parseFloat(document.getElementById('speed').value),
         output_format: defaultFormat,
         crossfade_duration: parseFloat(document.getElementById('crossfade').value),
         intro_silence_ms: parseInt(document.getElementById('intro-silence').value, 10) || 0,
         inter_chunk_silence_ms: parseInt(document.getElementById('inter-silence').value, 10) || 0,
-        parallel_chunks: Math.min(25, Math.max(1, parseInt(document.getElementById('parallel-chunks')?.value, 10) || 3)),
+        parallel_chunks: Math.min(8, Math.max(1, parseInt(document.getElementById('parallel-chunks')?.value, 10) || 3)),
         group_chunks_by_speaker: document.getElementById('group-chunks-by-speaker')?.checked ?? false,
         cleanup_vram_after_job: document.getElementById('cleanup-vram-after-job')?.checked ?? false,
         gemini_api_key: document.getElementById('gemini-api-key').value,
@@ -823,6 +865,30 @@ async function saveSettings() {
         qwen3_clone_default_language: document.getElementById('qwen3-clone-language').value,
         qwen3_clone_default_prompt: document.getElementById('qwen3-clone-prompt').value,
         qwen3_clone_default_prompt_text: document.getElementById('qwen3-clone-prompt-text').value,
+        pocket_tts_model_variant: document.getElementById('pocket-tts-model-variant')?.value || 'b6369a24',
+        pocket_tts_temp: parseFloat(document.getElementById('pocket-tts-temp')?.value) || 0.7,
+        pocket_tts_lsd_decode_steps: parseInt(document.getElementById('pocket-tts-steps')?.value, 10) || 1,
+        pocket_tts_noise_clamp: (() => {
+            const raw = document.getElementById('pocket-tts-noise-clamp')?.value?.trim();
+            if (!raw) return null;
+            const parsed = parseFloat(raw);
+            return Number.isFinite(parsed) ? parsed : null;
+        })(),
+        pocket_tts_eos_threshold: parseFloat(document.getElementById('pocket-tts-eos')?.value) || -4.0,
+        pocket_tts_default_prompt: document.getElementById('pocket-tts-default-prompt')?.value || '',
+        pocket_tts_prompt_truncate: document.getElementById('pocket-tts-prompt-truncate')?.checked ?? false,
+        pocket_tts_num_threads: (() => {
+            const raw = document.getElementById('pocket-tts-num-threads')?.value?.trim();
+            if (!raw) return null;
+            const parsed = parseInt(raw, 10);
+            return Number.isFinite(parsed) ? parsed : null;
+        })(),
+        pocket_tts_interop_threads: (() => {
+            const raw = document.getElementById('pocket-tts-interop-threads')?.value?.trim();
+            if (!raw) return null;
+            const parsed = parseInt(raw, 10);
+            return Number.isFinite(parsed) ? parsed : null;
+        })(),
         chatterbox_turbo_replicate_model: document.getElementById('chatterbox-turbo-replicate-model').value,
         chatterbox_turbo_replicate_voice: document.getElementById('chatterbox-turbo-replicate-voice').value,
         chatterbox_turbo_replicate_temperature: parseFloat(document.getElementById('chatterbox-turbo-replicate-temperature').value) || 0.8,
@@ -884,6 +950,7 @@ async function resetSettings() {
         mode: 'local',
         replicate_api_key: '',
         chunk_size: 500,
+        kokoro_chunk_size: 500,
         speed: 1.0,
         output_format: 'mp3',
         crossfade_duration: 0.1,
@@ -923,7 +990,16 @@ async function resetSettings() {
         qwen3_clone_attn_implementation: 'flash_attention_2',
         qwen3_clone_default_language: 'Auto',
         qwen3_clone_default_prompt: '',
-        qwen3_clone_default_prompt_text: ''
+        qwen3_clone_default_prompt_text: '',
+        pocket_tts_model_variant: 'b6369a24',
+        pocket_tts_temp: 0.7,
+        pocket_tts_lsd_decode_steps: 1,
+        pocket_tts_noise_clamp: null,
+        pocket_tts_eos_threshold: -4.0,
+        pocket_tts_default_prompt: '',
+        pocket_tts_prompt_truncate: false,
+        pocket_tts_num_threads: null,
+        pocket_tts_interop_threads: null
     };
     
     try {

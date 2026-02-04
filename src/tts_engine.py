@@ -10,6 +10,7 @@ from .engines.chatterbox_turbo_local_engine import ChatterboxTurboLocalEngine
 from .engines.voxcpm_local_engine import VoxCPMLocalEngine
 from .engines.qwen3_custom_voice_engine import Qwen3CustomVoiceEngine
 from .engines.qwen3_voice_clone_engine import Qwen3VoiceCloneEngine
+from .engines.pocket_tts_engine import PocketTTSEngine
 from .engines.chatterbox_turbo_replicate_engine import ChatterboxTurboReplicateEngine
 from .engines.kokoro_engine import (
     DEFAULT_SAMPLE_RATE,
@@ -24,6 +25,8 @@ EngineRegistry: Dict[str, Type[TtsEngineBase]] = {
     "chatterbox_turbo_local": ChatterboxTurboLocalEngine,
     "chatterbox_turbo_replicate": ChatterboxTurboReplicateEngine,
     "voxcpm_local": VoxCPMLocalEngine,
+    "pocket_tts": PocketTTSEngine,
+    "pocket_tts_preset": PocketTTSEngine,
     "qwen3_custom": Qwen3CustomVoiceEngine,
     "qwen3_clone": Qwen3VoiceCloneEngine,
 }

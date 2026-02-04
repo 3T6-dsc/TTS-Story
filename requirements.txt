@@ -43,6 +43,9 @@ funasr
 qwen-tts
 huggingface-hub
 
+# Pocket TTS runtime
+pocket-tts
+
 # Extra language-specific dependencies
 pyopenjtalk
 ordered-set

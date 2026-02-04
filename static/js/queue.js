@@ -47,6 +47,8 @@ document.addEventListener('DOMContentLoaded', () => {
     queueTabButton = document.querySelector('.tab-button[data-tab="queue"]');
     initQueue();
 
+    ensureJobDetailModalHandlers();
+
     if (queueTabButton) {
         queueTabButton.addEventListener('click', () => {
             loadQueue();
@@ -815,6 +817,9 @@ function displayQueue(data) {
         const statusIcon = getStatusIcon(job.status);
         const createdTime = job.created_at ? new Date(job.created_at).toLocaleString() : '';
         const isCurrentJob = job.job_id === data.current_job;
+        const canPause = job.status === 'queued' || job.status === 'processing';
+        const canResume = job.status === 'paused' || job.status === 'interrupted';
+        const canDelete = job.status !== 'processing' && job.status !== 'pausing';
 
         html += `
             <tr class="${isCurrentJob ? 'current-job' : ''}">
@@ -824,11 +829,21 @@ function displayQueue(data) {
                 <td class="text-preview">${job.text_preview || 'N/A'}</td>
                 <td>${createdTime}</td>
                 <td>
+                    <button class="btn-small btn-secondary" onclick="openJobDetailsModal('${job.job_id}')">Details</button>
+                    ${canPause ?
+                        `<button class="btn-small btn-warning" onclick="pauseQueueJob('${job.job_id}')">Pause</button>` :
+                        ''}
+                    ${canResume ?
+                        `<button class="btn-small btn-primary" onclick="resumeQueueJob('${job.job_id}')">Resume</button>` :
+                        ''}
                     ${job.status === 'completed' ?
                         `<button class="btn-small btn-primary" onclick="downloadJobAudio('${job.job_id}')">Download</button>` :
                         ''}
                     ${(job.status === 'queued' || job.status === 'processing') ?
                         `<button class="btn-small btn-danger" onclick="cancelQueueJob('${job.job_id}')">Cancel</button>` :
+                        ''}
+                    ${canDelete ?
+                        `<button class="btn-small btn-outline" onclick="deleteQueueJob('${job.job_id}')">Delete</button>` :
                         ''}
                     ${job.status === 'failed' ?
                         `<span class="error-text" title="${job.error || 'Unknown error'}">Failed</span>` :
@@ -852,8 +867,14 @@ function getStatusClass(status) {
             return 'status-queued';
         case 'processing':
             return 'status-processing';
+        case 'pausing':
+            return 'status-pausing';
+        case 'paused':
+            return 'status-paused';
         case 'completed':
             return 'status-completed';
+        case 'interrupted':
+            return 'status-interrupted';
         case 'failed':
             return 'status-failed';
         case 'cancelled':
@@ -869,7 +890,13 @@ function getStatusIcon(status) {
             return '';
         case 'processing':
             return '';
+        case 'pausing':
+            return '';
+        case 'paused':
+            return '';
         case 'completed':
+            return '';
+        case 'interrupted':
             return '';
         case 'failed':
             return '';
@@ -877,6 +904,134 @@ function getStatusIcon(status) {
             return '';
         default:
             return '';
+    }
+}
+
+function ensureJobDetailModalHandlers() {
+    const overlay = document.getElementById('job-detail-modal-overlay');
+    const closeBtn = document.getElementById('job-detail-modal-close');
+    const footerBtn = document.getElementById('job-detail-modal-close-btn');
+    if (overlay && !overlay.dataset.bound) {
+        overlay.addEventListener('click', (event) => {
+            if (event.target === overlay) {
+                closeJobDetailModal();
+            }
+        });
+        overlay.dataset.bound = 'true';
+    }
+    if (closeBtn && !closeBtn.dataset.bound) {
+        closeBtn.addEventListener('click', closeJobDetailModal);
+        closeBtn.dataset.bound = 'true';
+    }
+    if (footerBtn && !footerBtn.dataset.bound) {
+        footerBtn.addEventListener('click', closeJobDetailModal);
+        footerBtn.dataset.bound = 'true';
+    }
+}
+
+function closeJobDetailModal() {
+    const overlay = document.getElementById('job-detail-modal-overlay');
+    const modal = document.getElementById('job-detail-modal');
+    if (overlay) overlay.classList.add('hidden');
+    if (modal) modal.classList.add('hidden');
+}
+
+async function openJobDetailsModal(jobId) {
+    if (!jobId) return;
+    const overlay = document.getElementById('job-detail-modal-overlay');
+    const modal = document.getElementById('job-detail-modal');
+    const body = document.getElementById('job-detail-modal-body');
+    if (overlay) overlay.classList.remove('hidden');
+    if (modal) modal.classList.remove('hidden');
+    if (body) body.innerHTML = '<div class="chunk-review-loading">Loading job details...</div>';
+    try {
+        const response = await fetch(`/api/jobs/${jobId}/details`);
+        const payload = await response.json();
+        if (!payload.success) {
+            throw new Error(payload.error || 'Failed to load job details');
+        }
+        const job = payload.job || {};
+        const speakers = Array.isArray(job.speakers) ? job.speakers : [];
+        const speakerList = speakers.length ? speakers.map(s => `<span class="speaker-tag">${s}</span>`).join('') : '<span class="speaker-tag">default</span>';
+        const text = (job.text || '').trim();
+        const resumeFrom = Number.isFinite(Number(job.resume_from_chunk_index))
+            ? Number(job.resume_from_chunk_index) + 1
+            : null;
+        const resumeLine = resumeFrom ? `<div><strong>Resume from:</strong> chunk ${resumeFrom}</div>` : '';
+        if (body) {
+            body.innerHTML = `
+                <div class="job-detail-grid">
+                    <div>
+                        <strong>Engine:</strong> ${job.engine || 'Unknown'}
+                    </div>
+                    <div>
+                        <strong>Status:</strong> ${job.status || 'Unknown'}
+                    </div>
+                    <div>
+                        <strong>Created:</strong> ${job.created_at ? new Date(job.created_at).toLocaleString() : 'N/A'}
+                    </div>
+                    ${resumeLine}
+                    <div>
+                        <strong>Speakers:</strong>
+                        <div class="speaker-tags-wrap">${speakerList}</div>
+                    </div>
+                </div>
+                <div class="job-detail-text">
+                    <label>Job Text</label>
+                    <textarea readonly rows="10">${text}</textarea>
+                </div>
+            `;
+        }
+    } catch (error) {
+        if (body) body.innerHTML = '<div class="chunk-review-empty">Failed to load job details.</div>';
+        alert(error.message || 'Failed to load job details');
+    }
+}
+
+async function pauseQueueJob(jobId) {
+    if (!jobId) return;
+    try {
+        const response = await fetch(`/api/jobs/${jobId}/pause`, { method: 'POST' });
+        const data = await response.json();
+        if (!data.success) {
+            throw new Error(data.error || 'Failed to pause job');
+        }
+        loadQueue();
+    } catch (error) {
+        alert(error.message || 'Failed to pause job');
+    }
+}
+
+async function resumeQueueJob(jobId) {
+    if (!jobId) return;
+    try {
+        const response = await fetch(`/api/jobs/${jobId}/resume`, { method: 'POST' });
+        const data = await response.json();
+        if (!data.success) {
+            throw new Error(data.error || 'Failed to resume job');
+        }
+        loadQueue();
+    } catch (error) {
+        alert(error.message || 'Failed to resume job');
+    }
+}
+
+async function deleteQueueJob(jobId) {
+    if (!jobId) return;
+    if (!confirm('Delete this job and all its files?')) {
+        return;
+    }
+    try {
+        const response = await fetch(`/api/jobs/${jobId}/delete`, { method: 'DELETE' });
+        const data = await response.json();
+        if (!data.success) {
+            throw new Error(data.error || 'Failed to delete job');
+        }
+        completedJobIds.delete(jobId);
+        loadQueue();
+        document.dispatchEvent(new CustomEvent('library:refresh'));
+    } catch (error) {
+        alert(error.message || 'Failed to delete job');
     }
 }
 
@@ -903,6 +1058,12 @@ function renderJobProgress(job) {
         ? `Post-processing ${postDone} / ${postTotal}`
         : 'Post-processing…';
     const postFillClass = postTotal > 0 ? 'progress-bar-fill' : 'progress-bar-fill indeterminate';
+    const interruptedChip = job.status === 'interrupted'
+        ? '<span class="review-chip warning">Interrupted</span>'
+        : '';
+    const resumeHint = job.status === 'interrupted' && Number.isFinite(Number(job.resume_from_chunk_index))
+        ? `<span class="review-chip muted">Resume from chunk ${Number(job.resume_from_chunk_index) + 1}</span>`
+        : '';
 
     return `
         <div class="queue-progress">
@@ -917,6 +1078,12 @@ function renderJobProgress(job) {
                 <span>${chapterLabel}</span>
                 <span>${job.status === 'completed' ? 'Done' : job.status}</span>
             </div>
+            ${interruptedChip || resumeHint ? `
+                <div class="queue-progress-footer">
+                    <span>${interruptedChip}</span>
+                    <span>${resumeHint}</span>
+                </div>
+            ` : ''}
             ${showPost ? `
                 <div class="queue-post-progress">
                     <div class="queue-progress-header">

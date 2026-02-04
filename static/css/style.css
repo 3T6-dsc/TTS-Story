@@ -84,6 +84,30 @@
     cursor: pointer;
 }
 
+.job-detail-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.job-detail-text label {
+    display: block;
+    font-weight: 600;
+    margin-bottom: 8px;
+}
+
+.job-detail-text textarea {
+    width: 100%;
+    min-height: 220px;
+    resize: vertical;
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid var(--border-color);
+    background: var(--input-bg);
+    color: var(--text-color);
+}
+
 .voice-archive-section {
     margin-top: 18px;
     padding-top: 6px;
@@ -2070,11 +2094,16 @@ audio {
     background: var(--card-bg);
     border-radius: 12px;
     border: 1px solid var(--border-color);
-    width: min(520px, 90vw);
+    width: min(720px, 94vw);
     max-height: 90vh;
     overflow: hidden;
     display: flex;
     flex-direction: column;
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 1001;
 }
 
 .modal.hidden {
@@ -3357,9 +3386,24 @@ audio {
     color: var(--primary-color);
 }
 
+.status-pausing {
+    background: rgba(251, 191, 36, 0.2);
+    color: #f59e0b;
+}
+
+.status-paused {
+    background: rgba(148, 163, 184, 0.25);
+    color: var(--text-muted);
+}
+
 .status-completed {
     background: rgba(16, 185, 129, 0.2);
     color: var(--success-color);
+}
+
+.status-interrupted {
+    background: rgba(239, 68, 68, 0.15);
+    color: var(--danger-color);
 }
 
 .status-failed {

@@ -1,13 +1,13 @@
-# Current Updates and Notes - updated 02-02-2026
-- CPU-only installs: improved compatibility checks and automatic CPU torch fallback.
-- GPU installs: CUDA torch wheels updated to cu124 for PyTorch 2.6.0.
-- Torch install is now flexible: detects existing compatible builds and supports overrides (SKIP_TORCH_INSTALL / FORCE_TORCH_REINSTALL).
-- Library auto-refreshes when jobs complete (no manual refresh needed).
-- Chatterbox/VoxCPM/Qwen3 default speaker assignments now recognized reliably.
+# Current Updates and Notes - updated 02-03-2026
+- Added Pocket TTS engine with preset voices and CPU-friendly voice cloning support.
+- Job queue improvements: pause/resume, cancel jobs, and persistent queue state across restarts.
+- Job detail view expanded with per-chunk status and resume-from-chunk support.
+- Engine-specific chunk sizing defaults (including Pocket TTS, Qwen3, VoxCPM, Kokoro).
+- Library refreshes automatically when jobs complete (no manual refresh needed).
 
 # TTS-Story
 
-A web-based Text-to-Speech application supporting multiple TTS engines including **Kokoro-82M**, **Chatterbox**, **VoxCPM 1.5**, and **Qwen3 TTS** (Custom Voice, Clone, Voice Creation), with both local GPU inference and Replicate cloud API options for generating multi-voice audiobooks and stories.
+A web-based Text-to-Speech application supporting multiple TTS engines including **Kokoro-82M**, **Chatterbox**, **VoxCPM 1.5**, **Qwen3 TTS** (Custom Voice, Clone, Voice Creation), and **Pocket TTS** (CPU-friendly), with both local GPU inference and Replicate cloud API options for generating multi-voice audiobooks and stories.
 
 <div align="center">
   <table>
@@ -64,12 +64,14 @@ A web-based Text-to-Speech application supporting multiple TTS engines including
 ## Features
 
 ### TTS Engines
-- **Multi-Engine Support**: Choose from eight TTS engine options:
+- **Multi-Engine Support**: Choose from ten TTS engine options:
   - **Kokoro · Local GPU** - Run Kokoro-82M locally on your NVIDIA GPU
   - **Kokoro · Replicate** - Use Kokoro via Replicate cloud API
   - **Chatterbox · Local GPU** - Run Chatterbox locally with voice cloning (~8GB VRAM required)
   - **Chatterbox · Replicate** - Use Chatterbox via Replicate cloud API (`resemble-ai/chatterbox-turbo`)
   - **VoxCPM 1.5 · Local GPU** - Run VoxCPM 1.5 locally with voice cloning and automatic transcription
+  - **Pocket TTS · Preset Voices** - CPU-only preset voices with fast local generation
+  - **Pocket TTS · Voice Clone** - CPU-only voice cloning using reference prompts
   - **Qwen3 TTS · Custom Voice** - Generate with Qwen3 TTS custom voice prompts
   - **Qwen3 TTS · Clone** - Clone a voice from reference audio using Qwen3 TTS
   - **Qwen3 TTS · Voice Creation** - Create a brand-new voice using Qwen3 TTS voice design

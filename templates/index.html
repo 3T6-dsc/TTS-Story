@@ -41,6 +41,7 @@
                             Project
                             <button type="button" class="help-icon" data-help-id="projects" aria-label="Help: Projects">?</button>
                         </div>
+
                         <div class="project-controls-actions">
                             <button type="button" id="project-manage-btn" class="btn btn-secondary btn-sm">Manage Projects</button>
                             <span id="project-status" class="help-text"></span>
@@ -182,6 +183,8 @@
                                                 <option value="chatterbox_turbo_local">Chatterbox · Local GPU</option>
                                                 <option value="chatterbox_turbo_replicate">Chatterbox · Replicate</option>
                                                 <option value="voxcpm_local">VoxCPM 1.5 · Local GPU</option>
+                                                <option value="pocket_tts">Pocket TTS · Clone Voices</option>
+                                                <option value="pocket_tts_preset">Pocket TTS · Preset Voices</option>
                                                 <option value="qwen3_custom">Qwen3-TTS · Custom Voice</option>
                                                 <option value="qwen3_clone">Qwen3-TTS · Voice Clone</option>
                                             </select>
@@ -270,6 +273,21 @@
                     Most recently completed job.
                 </p>
                 <audio id="latest-audio-player" controls style="width: 100%; max-width: 600px;"></audio>
+            </div>
+        </div>
+
+        <!-- Job Detail Modal -->
+        <div id="job-detail-modal-overlay" class="modal-overlay hidden"></div>
+        <div id="job-detail-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="job-detail-modal-title">
+            <div class="modal-header">
+                <h3 id="job-detail-modal-title">Job Details</h3>
+                <button type="button" class="modal-close" id="job-detail-modal-close">×</button>
+            </div>
+            <div class="modal-body" id="job-detail-modal-body">
+                <div class="chunk-review-loading">Loading job details...</div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" id="job-detail-modal-close-btn">Close</button>
             </div>
         </div>
 
@@ -586,6 +604,8 @@
                                     <option value="chatterbox_turbo_local">Chatterbox · Local GPU</option>
                                     <option value="chatterbox_turbo_replicate">Chatterbox · Replicate</option>
                                     <option value="voxcpm_local">VoxCPM 1.5 · Local GPU</option>
+                                    <option value="pocket_tts">Pocket TTS · Clone Voices</option>
+                                    <option value="pocket_tts_preset">Pocket TTS · Preset Voices</option>
                                     <option value="qwen3_custom">Qwen3-TTS · Custom Voice</option>
                                     <option value="qwen3_clone">Qwen3-TTS · Voice Clone</option>
                                 </select>
@@ -629,6 +649,7 @@
                             <button type="button" class="engine-tab-btn" data-engine-tab="chatterbox-local">Chatterbox Local</button>
                             <button type="button" class="engine-tab-btn" data-engine-tab="chatterbox-replicate">Chatterbox Cloud</button>
                             <button type="button" class="engine-tab-btn" data-engine-tab="voxcpm">VoxCPM 1.5</button>
+                            <button type="button" class="engine-tab-btn" data-engine-tab="pocket-tts">Pocket TTS</button>
                             <button type="button" class="engine-tab-btn" data-engine-tab="qwen3">Qwen3-TTS</button>
                             <button type="button" class="engine-tab-btn" data-engine-tab="api-keys">API Keys</button>
                         </div>
@@ -640,7 +661,14 @@
                                 <button type="button" class="help-icon" data-help-id="engine-kokoro" aria-label="Help: Kokoro Settings">?</button>
                             </div>
                             <p class="help-text" style="margin-top:0;">Kokoro uses built-in voices. Configure the default voice on the Generate tab.</p>
-                            <p class="help-text">No additional settings required for local Kokoro. For Replicate, add your API key in the API Keys tab.</p>
+                            <div class="settings-form-grid">
+                                <div class="form-group">
+                                    <label for="kokoro-chunk-size">Chunk Size (chars)</label>
+                                    <input type="number" id="kokoro-chunk-size" min="100" max="1000" step="50" value="500">
+                                    <small>Character limit per chunk (recommended 300–600).</small>
+                                </div>
+                            </div>
+                            <p class="help-text">For Replicate, add your API key in the API Keys tab.</p>
                         </div>
 
                         <!-- Chatterbox Local Panel -->
@@ -801,6 +829,56 @@
                                     <input type="checkbox" id="voxcpm-local-denoise">
                                     Denoise output
                                 </label>
+                            </div>
+                        </div>
+
+                        <!-- Pocket TTS Panel -->
+                        <div class="engine-panel" id="engine-panel-pocket-tts">
+                            <div class="section-title-inline settings-panel-title">
+                                <h4>Pocket TTS</h4>
+                            </div>
+                            <p class="help-text" style="margin-top:0;">CPU-only Pocket TTS with voice prompts (.wav/.mp3 or .safetensors). Built-in voices run faster than cloning prompts.</p>
+                            <div class="settings-form-grid">
+                                <div class="form-group">
+                                    <label for="pocket-tts-model-variant">Model Variant</label>
+                                    <input type="text" id="pocket-tts-model-variant" placeholder="b6369a24">
+                                </div>
+                                <div class="form-group">
+                                    <label for="pocket-tts-temp">Temperature</label>
+                                    <input type="number" id="pocket-tts-temp" step="0.05" min="0.1" max="1.5">
+                                </div>
+                                <div class="form-group">
+                                    <label for="pocket-tts-steps">Decode Steps</label>
+                                    <input type="number" id="pocket-tts-steps" step="1" min="1" max="8">
+                                </div>
+                                <div class="form-group">
+                                    <label for="pocket-tts-noise-clamp">Noise Clamp (optional)</label>
+                                    <input type="number" id="pocket-tts-noise-clamp" step="0.1" placeholder="Leave blank">
+                                </div>
+                                <div class="form-group">
+                                    <label for="pocket-tts-eos">EOS Threshold</label>
+                                    <input type="number" id="pocket-tts-eos" step="0.1">
+                                </div>
+                                <div class="form-group">
+                                    <label for="pocket-tts-default-prompt">Default Voice Prompt</label>
+                                    <input type="text" id="pocket-tts-default-prompt" placeholder="data/voice_prompts/sample.wav">
+                                </div>
+                                <div class="form-group">
+                                    <label>
+                                        <input type="checkbox" id="pocket-tts-prompt-truncate">
+                                        Truncate prompt audio
+                                    </label>
+                                </div>
+                                <div class="form-group">
+                                    <label for="pocket-tts-num-threads">CPU Threads</label>
+                                    <input type="number" id="pocket-tts-num-threads" min="1" max="64" step="1" placeholder="Auto">
+                                    <small>Controls Torch CPU threads (leave blank for auto).</small>
+                                </div>
+                                <div class="form-group">
+                                    <label for="pocket-tts-interop-threads">Interop Threads</label>
+                                    <input type="number" id="pocket-tts-interop-threads" min="1" max="64" step="1" placeholder="Auto">
+                                    <small>Controls Torch interop threads.</small>
+                                </div>
                             </div>
                         </div>
 

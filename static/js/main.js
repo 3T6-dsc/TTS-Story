@@ -622,6 +622,18 @@ function renderHelpSearchResults(query, searchIndex, sectionMap) {
     });
 }
 
+function appendPocketPresetVoiceOptions(selectElement) {
+    const voices = Array.isArray(window.availablePocketTtsVoices)
+        ? window.availablePocketTtsVoices
+        : [];
+    voices.forEach(voiceName => {
+        const option = document.createElement('option');
+        option.value = voiceName;
+        option.textContent = voiceName;
+        selectElement.appendChild(option);
+    });
+}
+
 function buildHelpTopicsList() {
     const container = document.getElementById('help-topics-list');
     if (!container) return;
@@ -1030,6 +1042,15 @@ function isTurboEngine(engineName) {
         || value === 'qwen3_clone';
 }
 
+function isPromptEngine(engineName) {
+    const value = (engineName || '').toLowerCase();
+    return isTurboEngine(value) || value === 'pocket_tts';
+}
+
+function isPocketPresetEngine(engineName) {
+    return (engineName || '').toLowerCase() === 'pocket_tts_preset';
+}
+
 function isKokoroEngine(engineName) {
     const value = (engineName || '').toLowerCase();
     return value === 'kokoro' || value === 'kokoro_replicate';
@@ -1051,16 +1072,18 @@ function updateEngineUI(engineName) {
     const qwenCard = document.getElementById('qwen3-voice-card');
     const paralinguisticTagsBar = document.getElementById('paralinguistic-tags-bar');
     const isTurbo = isTurboEngine(engineName);
+    const isPrompt = isPromptEngine(engineName);
     const isQwen = isQwenEngine(engineName);
+    const isPocketPreset = isPocketPresetEngine(engineName);
     const isQwenClone = isQwenCloneEngine(engineName);
     const isKokoro = isKokoroEngine(engineName);
     console.log('[updateEngineUI] kokoroCard:', kokoroCard, 'turboCard:', turboCard, 'isTurbo:', isTurbo);
     if (kokoroCard) {
-        kokoroCard.style.display = isTurbo || isQwen || isQwenClone ? 'none' : 'block';
+        kokoroCard.style.display = isPrompt || isQwen || isQwenClone ? 'none' : 'block';
         console.log('[updateEngineUI] set kokoroCard.display to:', kokoroCard.style.display);
     }
     if (turboCard) {
-        turboCard.style.display = (isTurbo || isQwenClone) ? 'block' : 'none';
+        turboCard.style.display = (isPrompt || isQwenClone) ? 'block' : 'none';
         console.log('[updateEngineUI] set turboCard.display to:', turboCard.style.display);
     }
     if (qwenCard) {
@@ -1070,7 +1093,7 @@ function updateEngineUI(engineName) {
         paralinguisticTagsBar.style.display = isKokoro ? 'flex' : 'none';
     }
     updateAssignmentModes(engineName);
-    if (isTurbo || isQwenClone) {
+    if (isPrompt || isQwenClone) {
         fetchReferencePrompts();
     }
     if (isQwen) {
@@ -1087,7 +1110,7 @@ function getAssignmentRows() {
 }
 
 function updateAssignmentModes(engineName) {
-    const isTurbo = isTurboEngine(engineName);
+    const isTurbo = isPromptEngine(engineName);
     const isQwen = isQwenEngine(engineName);
     const isQwenClone = isQwenCloneEngine(engineName);
     getAssignmentRows().forEach(row => {
@@ -1133,6 +1156,7 @@ const ENGINE_MIN_DURATION = {
     'chatterbox_turbo_replicate': 5.0,
     'chatterbox': 5.0,
     'voxcpm_local': 0,  // VoxCPM accepts any duration
+    'pocket_tts': 0,
     'qwen3_custom': 0,
     'qwen3_clone': 0,
     'kokoro': 0,
@@ -1619,6 +1643,9 @@ function handleVoicesUpdated(event) {
     if (detail.customVoiceMap) {
         window.customVoiceMap = detail.customVoiceMap;
     }
+    if (Array.isArray(detail.pocketTtsVoices)) {
+        window.availablePocketTtsVoices = detail.pocketTtsVoices;
+    }
     populateDefaultVoiceSelect();
     populateVoiceSelects();
     initDefaultVoiceFxPanel();
@@ -1657,6 +1684,20 @@ function createAssignment(voiceName, langCode, speakerKey) {
         voice: voiceName,
         lang_code: langCode
     };
+    const fxPayload = getFxPayload(speakerKey);
+    if (fxPayload) {
+        assignment.fx = fxPayload;
+    }
+    const speedValue = Number(state.speed) || 1;
+    if (Math.abs(speedValue - 1) > 0.01) {
+        assignment.speed = Number(speedValue.toFixed(2));
+    }
+    return assignment;
+}
+
+function createPresetAssignment(voiceName, speakerKey) {
+    const state = getFxState(speakerKey);
+    const assignment = { voice: voiceName };
     const fxPayload = getFxPayload(speakerKey);
     if (fxPayload) {
         assignment.fx = fxPayload;
@@ -1843,12 +1884,13 @@ async function handleFxPreview(speaker, container) {
         return;
     }
     const engineName = getSelectedJobEngine() || runtimeSettings?.tts_engine || 'kokoro';
-    const usesSamplePreview = isTurboEngine(engineName);
-    const voiceName = usesSamplePreview ? '' : resolveVoiceSelection(speaker);
-    const samplePrompt = usesSamplePreview ? resolveVoiceSampleSelection(speaker) : '';
+    const usesPromptEngine = isPromptEngine(engineName);
+    const usesSamplePreview = usesPromptEngine && engineName !== 'pocket_tts';
+    const voiceName = usesPromptEngine ? '' : resolveVoiceSelection(speaker);
+    const samplePrompt = usesPromptEngine ? resolveVoiceSampleSelection(speaker) : '';
     if (!voiceName && !samplePrompt) {
         if (statusEl) {
-            statusEl.textContent = usesSamplePreview
+            statusEl.textContent = usesPromptEngine
                 ? 'Select a voice sample first.'
                 : 'Select a voice first.';
         }
@@ -1868,7 +1910,7 @@ async function handleFxPreview(speaker, container) {
     const pitchValue = Number(state.pitch) || 0;
 
     const payload = {
-        voice: voiceName,
+        voice: usesPromptEngine ? samplePrompt : voiceName,
         lang_code: langCode,
         text: sampleText,
     };
@@ -3977,15 +4019,18 @@ function initInlineSampleHandlers() {
 
 // Populate voice select dropdowns
 function populateVoiceSelects() {
-    if (!window.availableVoices) return;
+    if (!window.availableVoices && !window.availablePocketTtsVoices) return;
     const engineName = getSelectedJobEngine() || runtimeSettings?.tts_engine || 'kokoro';
     const isQwen = isQwenEngine(engineName);
+    const isPocketPreset = isPocketPresetEngine(engineName);
     const selects = document.querySelectorAll('#inline-voice-assignment-list .voice-select, #speaker-edit-modal-body .voice-select');
     selects.forEach(select => {
         const previousValue = select.value;
         select.innerHTML = '<option value="">Select Voice...</option>';
         if (isQwen) {
             appendQwen3VoiceOptions(select);
+        } else if (isPocketPreset) {
+            appendPocketPresetVoiceOptions(select);
         } else {
             appendVoiceOptions(select);
         }
@@ -4249,13 +4294,26 @@ function resetVoiceAssignments() {
 // Populate default voice selector
 function populateDefaultVoiceSelect() {
     const select = document.getElementById('default-voice-select');
-    if (!select || !window.availableVoices) {
+    if (!select) {
+        return;
+    }
+
+    const engineName = getSelectedJobEngine() || runtimeSettings?.tts_engine || 'kokoro';
+    const isPocketPreset = isPocketPresetEngine(engineName);
+    if (!isPocketPreset && !window.availableVoices) {
+        return;
+    }
+    if (isPocketPreset && !window.availablePocketTtsVoices) {
         return;
     }
 
     const previousValue = select.value;
     select.innerHTML = '<option value="">Select Default Voice...</option>';
-    appendVoiceOptions(select);
+    if (isPocketPreset) {
+        appendPocketPresetVoiceOptions(select);
+    } else {
+        appendVoiceOptions(select);
+    }
     restoreSelectValue(select, previousValue);
 }
 
@@ -4382,9 +4440,13 @@ function getVoiceAssignments() {
     const assignments = {};
     const selects = document.querySelectorAll('#inline-voice-assignment-list .voice-select, #speaker-edit-modal-body .voice-select');
     const engineName = getSelectedJobEngine() || runtimeSettings?.tts_engine || 'kokoro';
-    const turboEnabled = isTurboEngine(engineName);
+    const turboEnabled = isPromptEngine(engineName);
     const qwenEnabled = isQwenEngine(engineName);
     const qwenCloneEnabled = isQwenCloneEngine(engineName);
+    const pocketPresetEnabled = isPocketPresetEngine(engineName);
+    const pocketPresetDefault = pocketPresetEnabled
+        ? document.getElementById('default-voice-select')?.value?.trim() || ''
+        : '';
     const turboSelections = turboEnabled ? buildTurboSelectionMap() : {};
     const globalReference = turboEnabled ? getGlobalReferenceSelection() : '';
     const qwenSpeakerDefault = document.getElementById('qwen3-default-speaker')?.value || '';
@@ -4418,11 +4480,26 @@ function getVoiceAssignments() {
             return;
         }
 
+        if (pocketPresetEnabled) {
+            const presetVoice = voiceName || pocketPresetDefault;
+            if (presetVoice) {
+                assignments[speaker] = createPresetAssignment(presetVoice, speaker);
+            }
+            return;
+        }
+
         if (voiceName && window.availableVoices) {
             const langCode = getLangCodeForVoice(voiceName);
             assignments[speaker] = createAssignment(voiceName, langCode, speaker);
         }
     });
+
+    if (pocketPresetEnabled && !Object.keys(assignments).length) {
+        const fallbackVoice = pocketPresetDefault;
+        if (fallbackVoice) {
+            assignments.default = createPresetAssignment(fallbackVoice, 'default');
+        }
+    }
 
     if (turboEnabled || qwenCloneEnabled) {
         if (Object.keys(assignments).length) {

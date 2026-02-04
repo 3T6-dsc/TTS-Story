@@ -4,6 +4,7 @@ let voiceData = null;
 // Make availableVoices globally accessible for main.js
 window.availableVoices = null;
 window.customVoiceMap = window.customVoiceMap || {};
+window.availablePocketTtsVoices = null;
 let chatterboxVoices = [];
 const CHATTERBOX_ALLOWED_EXTENSIONS = ['.wav', '.mp3', '.m4a', '.flac', '.ogg'];
 const chatterboxPreviewController = createChatterboxPreviewController();
@@ -29,6 +30,7 @@ window.CHATTERBOX_VOICES_EVENT = CHATTERBOX_VOICES_EVENT;
 // Load voices on page load
 document.addEventListener('DOMContentLoaded', () => {
     loadVoices();
+    loadPocketTtsVoices();
     loadCustomVoices();
     setupCustomVoiceModal();
     loadChatterboxVoices();
@@ -53,6 +55,23 @@ function setupVoicesAccordion() {
             toggle.textContent = section.classList.contains('collapsed') ? '▶' : '▼';
         });
     });
+}
+
+async function loadPocketTtsVoices() {
+    try {
+        const response = await fetch('/api/pocket-tts/voices');
+        const data = await response.json();
+        if (data.success) {
+            window.availablePocketTtsVoices = data.voices || [];
+        } else {
+            window.availablePocketTtsVoices = [];
+        }
+    } catch (error) {
+        console.error('Error loading Pocket TTS voices:', error);
+        window.availablePocketTtsVoices = [];
+    } finally {
+        emitVoicesUpdated();
+    }
 }
 
 function getSelectionSet(scope) {
@@ -1657,6 +1676,7 @@ function emitVoicesUpdated() {
         voices: voiceData,
         samplesReady,
         customVoiceMap: window.customVoiceMap,
+        pocketTtsVoices: window.availablePocketTtsVoices,
     };
     window.dispatchEvent(new CustomEvent(VOICES_UPDATED_EVENT, { detail }));
 }

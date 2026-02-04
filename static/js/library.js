@@ -315,6 +315,8 @@ function formatEngineName(engine) {
         'chatterbox_turbo_local': 'Chatterbox',
         'chatterbox_turbo_replicate': 'Chatterbox (Replicate)',
         'voxcpm_local': 'VoxCPM 1.5',
+        'pocket_tts': 'Pocket TTS (Clone Voices)',
+        'pocket_tts_preset': 'Pocket TTS (Preset Voices)',
         'qwen3_custom': 'Qwen3-TTS (Custom Voice)',
         'qwen3_clone': 'Qwen3-TTS (Voice Clone)',
     };
@@ -1456,6 +1458,7 @@ function wireChunkReviewEvents(jobId, chunks, engine) {
 
             if (normalizedEngine.includes('chatterbox')
                 || normalizedEngine.includes('voxcpm')
+                || normalizedEngine.includes('pockettts')
                 || (normalizedEngine.includes('qwen3') && normalizedEngine.includes('clone'))
             ) {
                 libraryChunkVoiceOverrides[chunkId] = { audio_prompt_path: value };
@@ -1580,6 +1583,7 @@ async function initLibraryVoiceFilters(engine) {
     const normalizedEngine = (engine || '').toLowerCase();
     const usesPrompts = normalizedEngine.includes('chatterbox')
         || normalizedEngine.includes('voxcpm')
+        || normalizedEngine.includes('pockettts')
         || (normalizedEngine.includes('qwen3') && normalizedEngine.includes('clone'));
     if (!usesPrompts) return;
     
@@ -1651,7 +1655,9 @@ async function populateLibraryVoiceSelects(engine) {
     const isVoxCPM = normalizedEngine.includes('voxcpm');
     const isQwen = normalizedEngine.includes('qwen3');
     const isQwenClone = normalizedEngine.includes('qwen3') && normalizedEngine.includes('clone');
-    const usesVoicePrompts = isChatterbox || isVoxCPM || isQwenClone;
+    const isPocketPreset = normalizedEngine.includes('pocketttspreset');
+    const isPocket = normalizedEngine.includes('pockettts') && !isPocketPreset;
+    const usesVoicePrompts = isChatterbox || isVoxCPM || isQwenClone || isPocket;
 
     let voices = [];
     try {
@@ -1689,6 +1695,16 @@ async function populateLibraryVoiceSelects(engine) {
                     id: speaker,
                     name: speaker,
                     isQwen: true
+                }));
+            }
+        } else if (isPocketPreset) {
+            const response = await fetch('/api/pocket-tts/voices');
+            const data = await response.json();
+            if (data.success && data.voices) {
+                voices = data.voices.map(voice => ({
+                    id: voice,
+                    name: voice,
+                    isPrompt: false
                 }));
             }
         } else {
@@ -1736,6 +1752,8 @@ async function populateLibraryVoiceSelects(engine) {
         'chatterboxturbolocal': 5.0,
         'chatterboxturborepl': 5.0,
         'voxcpmlocal': 0,  // VoxCPM accepts any duration
+        'pockettts': 0,
+        'pocketttspreset': 0,
     };
     
     function getMinDuration(engineName) {
@@ -1764,6 +1782,8 @@ async function populateLibraryVoiceSelects(engine) {
     let qwenMetadataRequest = null;
     let voicesCache = null;
     let voicesRequest = null;
+    let pocketTtsVoicesCache = null;
+    let pocketTtsVoicesRequest = null;
 
     async function getVoicePromptsCached() {
         if (voicePromptCache) return voicePromptCache;
@@ -1816,6 +1836,23 @@ async function populateLibraryVoiceSelects(engine) {
         return voicesRequest;
     }
 
+    async function getPocketTtsVoicesCached() {
+        if (pocketTtsVoicesCache) return pocketTtsVoicesCache;
+        if (!pocketTtsVoicesRequest) {
+            pocketTtsVoicesRequest = fetch('/api/pocket-tts/voices')
+                .then(response => response.json())
+                .then(data => {
+                    pocketTtsVoicesCache = data;
+                    return data;
+                })
+                .catch(err => {
+                    pocketTtsVoicesRequest = null;
+                    throw err;
+                });
+        }
+        return pocketTtsVoicesRequest;
+    }
+
     async function populatePromptFilterOptions(genderSelect, languageSelect) {
         if (!genderSelect || !languageSelect) return;
         try {
@@ -1853,8 +1890,10 @@ async function populateLibraryVoiceSelects(engine) {
     }
 
     async function populateChunkVoiceSelect(select, chunkId, engineName, filters = null, currentLabel = '', selectedValue = '') {
+        const isPocketPreset = engineName.includes('pocketttspreset');
         const usesPrompts = engineName.includes('chatterbox')
             || engineName.includes('voxcpm')
+            || (engineName.includes('pockettts') && !isPocketPreset)
             || (engineName.includes('qwen3') && engineName.includes('clone'));
         const isQwenEngine = engineName.includes('qwen3');
         const minDuration = getMinDuration(engineName);
@@ -1881,6 +1920,15 @@ async function populateLibraryVoiceSelects(engine) {
                         id: speaker,
                         name: speaker,
                         isQwen: true
+                    }));
+                }
+            } else if (isPocketPreset) {
+                const data = await getPocketTtsVoicesCached();
+                if (data.success && data.voices) {
+                    chunkVoices = data.voices.map(voice => ({
+                        id: voice,
+                        name: voice,
+                        isPrompt: false
                     }));
                 }
             } else {
@@ -1963,8 +2011,10 @@ async function populateLibraryVoiceSelects(engine) {
 
     // Helper to populate bulk speaker voice select based on engine
     async function populateBulkVoiceSelect(select, speaker, engineName, filters = null) {
+        const isPocketPreset = engineName.includes('pocketttspreset');
         const usesPrompts = engineName.includes('chatterbox')
             || engineName.includes('voxcpm')
+            || (engineName.includes('pockettts') && !isPocketPreset)
             || (engineName.includes('qwen3') && engineName.includes('clone'));
         const isQwenEngine = engineName.includes('qwen3');
         const minDuration = getMinDuration(engineName);
@@ -1991,6 +2041,15 @@ async function populateLibraryVoiceSelects(engine) {
                         id: speaker,
                         name: speaker,
                         isQwen: true
+                    }));
+                }
+            } else if (isPocketPreset) {
+                const data = await getPocketTtsVoicesCached();
+                if (data.success && data.voices) {
+                    bulkVoices = data.voices.map(voice => ({
+                        id: voice,
+                        name: voice,
+                        isPrompt: false
                     }));
                 }
             } else {
@@ -2080,6 +2139,8 @@ async function populateLibraryVoiceSelects(engine) {
             <option value="chatterbox_turbo_local">Chatterbox</option>
             <option value="chatterbox_turbo_api">Chatterbox API</option>
             <option value="voxcpm_local">VoxCPM 1.5</option>
+            <option value="pocket_tts">Pocket TTS · Clone Voices</option>
+            <option value="pocket_tts_preset">Pocket TTS · Preset Voices</option>
             <option value="qwen3_custom">Qwen3-TTS</option>
             <option value="qwen3_clone">Qwen3-TTS · Voice Clone</option>
         `;
@@ -2110,6 +2171,7 @@ async function populateLibraryVoiceSelects(engine) {
         const isQwen = normalizedEngineValue.includes('qwen3') && !normalizedEngineValue.includes('clone');
         const usesPrompts = normalizedEngineValue.includes('chatterbox')
             || normalizedEngineValue.includes('voxcpm')
+            || (normalizedEngineValue.includes('pockettts') && !normalizedEngineValue.includes('pocketttspreset'))
             || (normalizedEngineValue.includes('qwen3') && normalizedEngineValue.includes('clone'));
         if (promptFilters) {
             promptFilters.style.display = usesPrompts ? 'block' : 'none';
@@ -2178,6 +2240,7 @@ async function populateLibraryVoiceSelects(engine) {
                 && !normalizedSelectedEngine.includes('clone');
             const usesPrompts = normalizedSelectedEngine.includes('chatterbox')
                 || normalizedSelectedEngine.includes('voxcpm')
+                || (normalizedSelectedEngine.includes('pockettts') && !normalizedSelectedEngine.includes('pocketttspreset'))
                 || (normalizedSelectedEngine.includes('qwen3') && normalizedSelectedEngine.includes('clone'));
             if (promptFilters) {
                 promptFilters.style.display = usesPrompts ? 'block' : 'none';
@@ -2207,6 +2270,8 @@ async function populateLibraryVoiceSelects(engine) {
             <option value="chatterbox_turbo_local">Chatterbox</option>
             <option value="chatterbox_turbo_api">Chatterbox API</option>
             <option value="voxcpm_local">VoxCPM 1.5</option>
+            <option value="pocket_tts">Pocket TTS · Clone Voices</option>
+            <option value="pocket_tts_preset">Pocket TTS · Preset Voices</option>
             <option value="qwen3_custom">Qwen3-TTS</option>
             <option value="qwen3_clone">Qwen3-TTS · Voice Clone</option>
         `;
@@ -2269,6 +2334,7 @@ async function populateLibraryVoiceSelects(engine) {
         const normalizedEngine = selectedEngine.toLowerCase();
         const usesPrompts = normalizedEngine.includes('chatterbox')
             || normalizedEngine.includes('voxcpm')
+            || (normalizedEngine.includes('pockettts') && !normalizedEngine.includes('pocketttspreset'))
             || (normalizedEngine.includes('qwen3') && normalizedEngine.includes('clone'));
         if (promptFilters) {
             promptFilters.style.display = usesPrompts ? 'block' : 'none';
