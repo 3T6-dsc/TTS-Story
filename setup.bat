@@ -105,6 +105,11 @@ echo.
 echo Preinstalling numpy and wheel...
 pip install --upgrade "numpy<1.26.0" wheel
 
+REM Preinstall pandas from wheels to avoid source builds on Windows
+echo.
+echo Preinstalling pandas (wheel-only)...
+pip install --only-binary=:all: "pandas<2.3.0"
+
 REM Install PyTorch (let pip/PyTorch auto-detect CUDA)
 echo.
 echo [5/12] Installing PyTorch...
@@ -191,7 +196,7 @@ findstr /v /i "s3tokenizer" temp_requirements_filtered2.txt > temp_requirements_
 del temp_requirements.txt
 del temp_requirements_filtered.txt
 del temp_requirements_filtered2.txt
-pip install -r temp_requirements_filtered3.txt
+pip install --prefer-binary -r temp_requirements_filtered3.txt
 if errorlevel 1 (
     echo ERROR: Failed to install dependencies
     pause
