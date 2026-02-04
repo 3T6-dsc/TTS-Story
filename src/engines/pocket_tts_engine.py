@@ -1,8 +1,10 @@
 """Pocket TTS engine adapter."""
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
+import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed, wait, FIRST_COMPLETED
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -100,6 +102,7 @@ class PocketTTSEngine(TtsEngineBase):
         self.prompt_truncate = bool(prompt_truncate)
         self.post_processor = AudioPostProcessor()
         self._voice_cache: Dict[str, Dict] = {}
+        self._prompt_wav_cache: Dict[str, str] = {}
 
     @property
     def sample_rate(self) -> int:
@@ -294,6 +297,7 @@ class PocketTTSEngine(TtsEngineBase):
         return trimmed
 
     def _get_voice_state(self, prompt_path: str, allow_predefined: bool = True) -> Dict:
+        prompt_path = self._ensure_wav_prompt(prompt_path)
         cache_key = prompt_path
         cached = self._voice_cache.get(cache_key)
         if cached is not None:
@@ -308,6 +312,40 @@ class PocketTTSEngine(TtsEngineBase):
         )
         self._voice_cache[cache_key] = voice_state
         return voice_state
+
+    def _ensure_wav_prompt(self, prompt_path: str) -> str:
+        if prompt_path in self._builtin_voices():
+            return prompt_path
+        if prompt_path.startswith("hf://") or prompt_path.startswith("http://") or prompt_path.startswith("https://"):
+            return prompt_path
+        source_path = Path(prompt_path)
+        if not source_path.is_file():
+            return prompt_path
+        if source_path.suffix.lower() == ".wav":
+            return str(source_path)
+        cached = self._prompt_wav_cache.get(prompt_path)
+        if cached and Path(cached).is_file():
+            return cached
+        try:
+            from pydub import AudioSegment
+        except Exception as exc:  # pragma: no cover - optional dependency
+            logger.warning("Pocket TTS requires WAV prompts; pydub unavailable: %s", exc)
+            return prompt_path
+        try:
+            stat = source_path.stat()
+            cache_key = f"{source_path.resolve()}:{stat.st_size}:{stat.st_mtime}"
+            digest = hashlib.md5(cache_key.encode("utf-8")).hexdigest()[:12]
+            temp_dir = Path(tempfile.gettempdir()) / "tts_story_pocket_prompts"
+            temp_dir.mkdir(parents=True, exist_ok=True)
+            target_path = temp_dir / f"{source_path.stem}_{digest}.wav"
+            if not target_path.exists():
+                audio = AudioSegment.from_file(str(source_path))
+                audio.export(target_path, format="wav")
+            self._prompt_wav_cache[prompt_path] = str(target_path)
+            return str(target_path)
+        except Exception as exc:
+            logger.warning("Failed to convert prompt %s to WAV: %s", source_path, exc)
+            return prompt_path
 
     @staticmethod
     def _builtin_voices() -> set:
