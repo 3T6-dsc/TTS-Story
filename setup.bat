@@ -100,16 +100,6 @@ echo.
 echo [4/12] Upgrading pip...
 python -m pip install --upgrade pip --quiet
 
-REM Preinstall numpy + wheel to avoid build isolation issues (spacy-pkuseg)
-echo.
-echo Preinstalling numpy and wheel...
-pip install --upgrade "numpy>=2.0.0" wheel
-
-REM Preinstall pandas from wheels to avoid source builds on Windows
-echo.
-echo Preinstalling pandas (wheel-only)...
-pip install --only-binary=:all: "pandas<2.3.0"
-
 REM Install PyTorch (let pip/PyTorch auto-detect CUDA)
 echo.
 echo [5/12] Installing PyTorch...
@@ -159,14 +149,6 @@ if "%SKIP_TORCH_INSTALL%"=="1" (
     )
 )
 
-echo.
-echo Installing Pocket TTS (requires numpy>=2)...
-pip install "numpy>=2" "pocket-tts==1.0.3"
-if errorlevel 1 (
-    echo WARNING: pocket-tts failed to install. Pocket TTS engine will be unavailable.
-    echo You can retry later with: pip install "numpy>=2" "pocket-tts==1.0.3"
-)
-
 if "%NEED_TORCH_INSTALL%"=="0" (
     echo Skipping torch install - compatible build already present.
 ) else (
@@ -190,7 +172,7 @@ if "%NEED_TORCH_INSTALL%"=="0" (
             echo CPU-only PyTorch install failed, trying default index...
             pip install --upgrade --force-reinstall torch torchvision torchaudio
         )
-        pip install --upgrade "pillow<12.0" "fsspec<=2025.3.0" "filelock>=3.20.1,<4"
+        pip install --upgrade "numpy<1.26.0" "pillow<12.0" "fsspec<=2025.3.0" "filelock>=3.20.1,<4"
     )
 )
 
@@ -199,30 +181,14 @@ echo.
 echo [6/12] Installing other Python dependencies...
 findstr /v /i "torch" requirements.txt > temp_requirements.txt
 findstr /v /i "pyopenjtalk" temp_requirements.txt > temp_requirements_filtered.txt
-findstr /v /i "spacy-pkuseg" temp_requirements_filtered.txt > temp_requirements_filtered2.txt
-findstr /v /i "s3tokenizer" temp_requirements_filtered2.txt > temp_requirements_filtered3.txt
 del temp_requirements.txt
-del temp_requirements_filtered.txt
-del temp_requirements_filtered2.txt
-pip install --prefer-binary --only-binary=pandas -r temp_requirements_filtered3.txt
+pip install -r temp_requirements_filtered.txt
 if errorlevel 1 (
     echo ERROR: Failed to install dependencies
     pause
     exit /b 1
 )
-del temp_requirements_filtered3.txt
-
-echo.
-echo Installing optional spacy-pkuseg (Chinese segmentation)...
-if "%SKIP_PKUSEG%"=="1" (
-    echo SKIP_PKUSEG=1 set. Skipping spacy-pkuseg.
-) else (
-    pip install --no-build-isolation spacy-pkuseg
-    if errorlevel 1 (
-        echo WARNING: spacy-pkuseg failed to install. Chinese segmentation will be unavailable.
-        echo You can retry later with: pip install --no-build-isolation spacy-pkuseg
-    )
-)
+del temp_requirements_filtered.txt
 
 echo.
 echo Installing optional pyopenjtalk (Japanese text support)...
