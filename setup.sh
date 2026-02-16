@@ -56,6 +56,9 @@ if ! command -v git >/dev/null 2>&1; then
     fi
 else
     echo "Git is installed: $(git --version)"
+
+# Fix for git dubious ownership warning
+git config --global --add safe.directory "*" 2>/dev/null || true
 fi
 fi
 
