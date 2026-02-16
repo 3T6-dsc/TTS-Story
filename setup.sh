@@ -113,9 +113,8 @@ HAS_NVIDIA=0
 GPU_NAME=""
 if command -v nvidia-smi >/dev/null 2>&1; then
     GPU_NAME=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1 || echo "")
-    if [ -" ]; then
-n "$GPU_NAME        HAS_NVIDIA=1
-        echo "NVIDIA GPU detected: $GPU_NAME"
+    if [ -n "$GPU_NAME" ]; then
+        HAS_NVIDIA=1
     fi
 fi
 
