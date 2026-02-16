@@ -82,7 +82,7 @@ echo "python3-venv is available."
 # 2/12 Create virtual environment
 echo
 echo "[2/12] Creating virtual environment..."
-if [ -d "venv" ]; then
+if [ -d "venv" ] && [ -f "venv/bin/activate" ]; then
     echo "Virtual environment already exists, skipping..."
 else
     python3 -m venv venv
