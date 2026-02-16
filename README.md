@@ -1,6 +1,6 @@
 # Current Updates and Notes - updated 02-15-2026
-- Added complete Linux/macOS support with setup.sh and run.sh scripts (GPU detection, system dependencies, all TTS engines).
-- Added tag validation and correction utility for local LLM output processing (fixes mismatched speaker tags).
+- ✅ Verified working on Linux (Ubuntu) - CPU-only system install successful via install-update.sh.
+- Added complete Linux/macOS support with setup.sh and run.sh scripts (auto-installs git, python3-venv, system dependencies).
 - Added new prompt presets optimized for local LLMs: "With Paralinguistic Tags" and "Without Paralinguistic Tags".
 - Added "Local LLM Optimized" prompt preset specifically tuned for Mistral Nemo/Llama models.
 - Added speaker mapping to maintain consistent speaker names across text chunks.
