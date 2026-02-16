@@ -1,9 +1,16 @@
-# Current Updates and Notes - updated 02-03-2026
-- Added Pocket TTS engine with preset voices and CPU-friendly voice cloning support.
-- Job queue improvements: pause/resume, cancel jobs, and persistent queue state across restarts.
-- Job detail view expanded with per-chunk status and resume-from-chunk support.
-- Engine-specific chunk sizing defaults (including Pocket TTS, Qwen3, VoxCPM, Kokoro).
-- Library refreshes automatically when jobs complete (no manual refresh needed).
+# Current Updates and Notes - updated 02-15-2026
+- Added tag validation and correction utility for local LLM output processing (fixes mismatched speaker tags).
+- Added new prompt presets optimized for local LLMs: "With Paralinguistic Tags" and "Without Paralinguistic Tags".
+- Added "Local LLM Optimized" prompt preset specifically tuned for Mistral Nemo/Llama models.
+- Added speaker mapping to maintain consistent speaker names across text chunks.
+- Setup script fixes for chatterbox-tts and pocket-tts installations (scipy, torchaudio, numpy compatibility).
+
+### Previous Updates
+- (02-03-2026) Added Pocket TTS engine with preset voices and CPU-friendly voice cloning support.
+- (02-03-2026) Job queue improvements: pause/resume, cancel jobs, and persistent queue state across restarts.
+- (02-03-2026) Job detail view expanded with per-chunk status and resume-from-chunk support.
+- (02-03-2026) Engine-specific chunk sizing defaults (including Pocket TTS, Qwen3, VoxCPM, Kokoro).
+- (02-03-2026) Library refreshes automatically when jobs complete (no manual refresh needed).
 
 # TTS-Story
 
