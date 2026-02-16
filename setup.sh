@@ -35,6 +35,28 @@ PYTHON_MINOR=$(python3 -c 'import sys; print(sys.version_info.minor)')
 if [ "$PYTHON_MAJOR" -lt 3 ] || ([ "$PYTHON_MAJOR" -eq 3 ] && [ "$PYTHON_MINOR" -lt 9 ]); then
     echo "ERROR: Python 3.9 or higher is required. Found: $PYTHON_VERSION"
     exit 1
+
+# 1b/12 Check and install git if not present
+echo
+echo "[1b/12] Checking Git installation..."
+if ! command -v git >/dev/null 2>&1; then
+    echo "Git not found. Installing Git..."
+    if command -v apt-get >/dev/null 2>&1; then
+        sudo apt-get update -qq
+        sudo apt-get install -y -qq git
+    elif command -v brew >/dev/null 2>&1; then
+        brew install git
+    elif command -v pacman >/dev/null 2>&1; then
+        sudo pacman -Sy --noconfirm git
+    elif command -v dnf >/dev/null 2>&1; then
+        sudo dnf install -y git
+    else
+        echo "WARNING: Could not detect package manager to install git."
+        echo "Please install git manually and re-run setup.sh."
+    fi
+else
+    echo "Git is installed: $(git --version)"
+fi
 fi
 
 # 2/12 Create virtual environment

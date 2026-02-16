@@ -4,8 +4,7 @@
     {
       "method": "shell.run",
       "params": {
-        "venv": "env",
-        "message": "python app.py"
+        "message": "if [ -f run.sh ]; then chmod +x run.sh && ./run.sh; else if [ -f run.bat ]; then ./run.bat; fi; fi"
       }
     },
     {

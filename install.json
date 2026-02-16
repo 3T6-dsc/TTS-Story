@@ -9,40 +9,19 @@
     {
       "method": "shell.run",
       "params": {
-        "venv": "env",
-        "message": "python -m pip install --upgrade pip"
+        "message": "if [ -f setup.sh ]; then chmod +x setup.sh && ./setup.sh; else if [ -f setup.bat ]; then ./setup.bat; fi; fi"
       }
     },
     {
       "method": "shell.run",
       "params": {
-        "venv": "env",
-        "message": [
-          "pip install torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0 --index-url https://download.pytorch.org/whl/cu124",
-          "pip install -r requirements.txt"
-        ]
+        "message": "sleep 5"
       }
     },
     {
       "method": "shell.run",
       "params": {
-        "venv": "env",
-        "message": "pip install chatterbox-tts --no-deps"
-      }
-    },
-    {
-      "method": "shell.run",
-      "params": {
-        "venv": "env",
-        "message": "pip install s3tokenizer transformers==4.46.3 diffusers==0.29.0 resemble-perth==1.0.1 conformer==0.3.2 safetensors==0.5.3 spacy-pkuseg pykakasi==2.3.0 omegaconf>=2.3.0"
-      }
-    },
-    {
-      "method": "fs.link",
-      "params": {
-        "drive": {
-          "huggingface": "HF_HOME"
-        }
+        "message": "if [ -f run.sh ]; then chmod +x run.sh; fi"
       }
     }
   ]

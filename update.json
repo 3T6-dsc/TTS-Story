@@ -9,8 +9,7 @@
     {
       "method": "shell.run",
       "params": {
-        "venv": "env",
-        "message": "pip install -r requirements.txt --upgrade"
+        "message": "if [ -f setup.sh ]; then chmod +x setup.sh && ./setup.sh; else if [ -f setup.bat ]; then ./setup.bat; fi; fi"
       }
     }
   ]
