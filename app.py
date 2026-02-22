@@ -980,6 +980,7 @@ def _perform_chunk_regeneration(
         voice_config = voice_config or {}
         voice_config[speaker] = effective_assignment
 
+    word_replacements = job_entry.get("word_replacements") or []
     chunk_text = (text_to_render or "").strip()
     if not chunk_text:
         raise ValueError("Chunk text cannot be empty.")
@@ -990,10 +991,11 @@ def _perform_chunk_regeneration(
     tmp_dir = Path(tempfile.mkdtemp(prefix="tts_chunk_regen_"))
     generated_files: List[str] = []
     try:
+        regen_text = _apply_word_replacements(chunk_text, word_replacements) if word_replacements else chunk_text
         segments = [{
             "speaker": speaker,
-            "text": chunk_text,
-            "chunks": [chunk_text],
+            "text": regen_text,
+            "chunks": [regen_text],
         }]
         engine_name = _normalize_engine_name(config_snapshot.get("tts_engine"))
         
@@ -1467,11 +1469,30 @@ def _restore_jobs_from_db() -> None:
             status = job_entry.get("status")
             if status in {"processing", "queued", "pausing"}:
                 if status == "processing":
-                    job_entry["status"] = "interrupted"
-                    job_entry["interrupted_at"] = datetime.now().isoformat()
-                    last_completed = job_entry.get("last_completed_chunk_index")
-                    if last_completed is not None:
-                        job_entry["resume_from_chunk_index"] = max(0, int(last_completed) + 1)
+                    # Check if the job actually finished — output files on disk mean it completed
+                    job_dir_str = job_entry.get("job_dir")
+                    _actually_completed = False
+                    if job_dir_str:
+                        _jdir = Path(job_dir_str)
+                        # Completed jobs have output.mp3/wav or chapter subdirs with audio
+                        _audio_exts = {".mp3", ".wav", ".flac", ".ogg", ".m4a"}
+                        if any(f.suffix in _audio_exts for f in _jdir.glob("output*")):
+                            _actually_completed = True
+                        elif any(f.suffix in _audio_exts for f in _jdir.rglob("chapter_*/*")):
+                            _actually_completed = True
+                        elif any(f.suffix in _audio_exts for f in _jdir.rglob("*/Title*")):
+                            _actually_completed = True
+                    if _actually_completed:
+                        job_entry["status"] = "completed"
+                        job_entry["progress"] = 100
+                        job_entry["interrupted_at"] = None
+                        job_entry["eta_seconds"] = 0
+                    else:
+                        job_entry["status"] = "interrupted"
+                        job_entry["interrupted_at"] = datetime.now().isoformat()
+                        last_completed = job_entry.get("last_completed_chunk_index")
+                        if last_completed is not None:
+                            job_entry["resume_from_chunk_index"] = max(0, int(last_completed) + 1)
                 else:
                     job_entry["status"] = "paused"
                 job_entry["eta_seconds"] = None
@@ -2332,13 +2353,15 @@ def _run_llm_prompt(prompt: str, config: Dict[str, Any]) -> str:
     return processor.generate_text(prompt)
 
 
-def compose_gemini_speaker_profile_prompt(prompt_prefix: str, speakers: List[str], context: str = "") -> str:
+def compose_gemini_speaker_profile_prompt(prompt_prefix: str, speakers: List[str], context: str = "", processed_text: str = "") -> str:
     """Build prompt for Gemini speaker profile table generation."""
     parts = []
     if prompt_prefix:
         parts.append(prompt_prefix.strip())
     if context:
         parts.append(context.strip())
+    if processed_text:
+        parts.append("The following is the processed story text with speaker tags already applied. Use it to understand each character's personality, role, and speaking style when building their profile:\n\n" + processed_text.strip())
     speaker_line = ", ".join([s for s in speakers if s])
     if speaker_line:
         parts.append(speaker_line)
@@ -2570,6 +2593,24 @@ def process_job_worker():
             time.sleep(1)
 
 
+def _apply_word_replacements(text: str, replacements: list) -> str:
+    """Apply a list of {original, replacement} substitutions to text (case-insensitive)."""
+    if not replacements or not text:
+        return text
+    import re as _re
+    for entry in replacements:
+        original = entry.get('original', '')
+        replacement = entry.get('replacement', '')
+        if not original or not replacement:
+            continue
+        try:
+            escaped = _re.escape(original)
+            text = _re.sub(escaped, replacement, text, flags=_re.IGNORECASE)
+        except Exception:
+            pass
+    return text
+
+
 def process_audio_job(job_data):
     """Process a single audio generation job"""
     job_id = job_data['job_id']
@@ -2579,6 +2620,7 @@ def process_audio_job(job_data):
     split_by_chapter = job_data.get('split_by_chapter', False)
     generate_full_story = job_data.get('generate_full_story', False)
     custom_heading = job_data.get('custom_heading')
+    word_replacements = job_data.get('word_replacements') or []
     
     try:
         # Check for cancellation
@@ -2828,6 +2870,13 @@ def process_audio_job(job_data):
                 if not segments:
                     return []
             output_dir.mkdir(parents=True, exist_ok=True)
+            # Apply word replacements to each chunk before TTS submission
+            if word_replacements:
+                for segment in segments:
+                    segment["chunks"] = [
+                        _apply_word_replacements(chunk, word_replacements)
+                        for chunk in (segment.get("chunks") or [])
+                    ]
             generated_files: List[str] = []
             chunk_cb = make_chunk_callback(chapter_idx, generated_files)
             supports_chunk_cb = False
@@ -4988,10 +5037,8 @@ def preview_audio():
     fx_settings = VoiceFXSettings.from_payload(data.get('fx'))
     requested_engine = (data.get('tts_engine') or '').strip().lower()
 
-    if not voice:
-        return jsonify({"success": False, "error": "Voice is required for preview."}), 400
     if not text:
-        text = "This is a quick Kokoro preview."
+        text = "This is a quick preview."
 
     config = load_config()
     # Use requested engine if provided, otherwise fall back to config
@@ -5002,19 +5049,51 @@ def preview_audio():
     sample_rate = int(config.get('sample_rate', DEFAULT_SAMPLE_RATE))
     audio_bytes = None
 
+    # For prompt-based engines the 'voice' field carries a file path that must
+    # be forwarded as audio_prompt_path, not as the voice name parameter.
+    _PROMPT_ENGINES = {
+        "chatterbox_turbo_local", "chatterbox_turbo_replicate",
+        "voxcpm_local", "pocket_tts", "qwen3_clone",
+    }
+    audio_prompt_path = data.get('audio_prompt_path') or None
+    if engine_name in _PROMPT_ENGINES and voice and not audio_prompt_path:
+        audio_prompt_path = voice
+        voice = ''
+
+    # Qwen3 engines don't use Kokoro-style lang codes — map 'a'/'b'/etc. to 'auto'
+    _QWEN3_ENGINES = {"qwen3_custom", "qwen3_clone"}
+    _KOKORO_LANG_CODES = {'a', 'b', 'e', 'f', 'h', 'i', 'j', 'p', 'z'}
+    if engine_name in _QWEN3_ENGINES and lang_code in _KOKORO_LANG_CODES:
+        lang_code = 'auto'
+
+    if not voice and not audio_prompt_path:
+        return jsonify({"success": False, "error": "Voice is required for preview."}), 400
+
     try:
-        logger.info("Preview request: engine=%s, voice=%s, lang_code=%s", engine_name, voice, lang_code)
+        logger.info("Preview request: engine=%s, voice=%s, lang_code=%s, prompt=%s",
+                    engine_name, voice, lang_code, audio_prompt_path)
         engine = get_tts_engine(engine_name, config=config)
         # Check if engine has generate_audio method that returns numpy array
         if hasattr(engine, 'generate_audio'):
-            audio = engine.generate_audio(
+            import inspect as _inspect
+            _sig = _inspect.signature(engine.generate_audio)
+            # Qwen3 custom expects lowercase speaker names
+            _voice = voice.lower() if engine_name == 'qwen3_custom' and voice else voice
+            # For engines that accept audio_prompt_path natively, pass it directly.
+            # For engines that use voice= as the prompt path (e.g. pocket_tts), put it back there.
+            _has_prompt_param = 'audio_prompt_path' in _sig.parameters
+            _effective_voice = audio_prompt_path if (audio_prompt_path and not _has_prompt_param) else _voice
+            _kwargs = dict(
                 text=text,
-                voice=voice,
+                voice=_effective_voice,
                 lang_code=lang_code,
                 speed=speed,
                 sample_rate=sample_rate,
                 fx_settings=fx_settings,
             )
+            if audio_prompt_path and _has_prompt_param:
+                _kwargs['audio_prompt_path'] = audio_prompt_path
+            audio = engine.generate_audio(**_kwargs)
             if hasattr(audio, 'size') and audio.size == 0:
                 raise RuntimeError("No audio produced for the requested preview.")
             if hasattr(audio, 'size'):
@@ -5688,7 +5767,8 @@ def process_gemini_speaker_profiles():
                 "error": "Speaker profile prompt not configured"
             }), 400
 
-        prompt = compose_gemini_speaker_profile_prompt(prompt_prefix, speakers, context)
+        processed_text = (data.get('processed_text') or '').strip()
+        prompt = compose_gemini_speaker_profile_prompt(prompt_prefix, speakers, context, processed_text)
         response_text = _run_llm_prompt(prompt, config)
         profiles = parse_gemini_speaker_table(response_text)
 
@@ -5832,6 +5912,11 @@ def generate_audio():
         requested_engine = (data.get('tts_engine') or '').strip().lower()
         engine_options = data.get('engine_options') if isinstance(data.get('engine_options'), dict) else None
         review_mode = bool(data.get('review_mode', False))
+        raw_replacements = data.get('word_replacements')
+        word_replacements = [
+            r for r in (raw_replacements or [])
+            if isinstance(r, dict) and r.get('original') and r.get('replacement')
+        ] if isinstance(raw_replacements, list) else []
 
         if not text:
             return jsonify({
@@ -5936,6 +6021,7 @@ def generate_audio():
                 "regen_tasks": {},
                 "engine": config.get("tts_engine"),
                 "resume_from_chunk_index": 0,
+                "word_replacements": word_replacements,
             }
             jobs[job_id]["job_payload"] = _build_job_payload(job_id, text, jobs[job_id])
         
@@ -5953,9 +6039,30 @@ def generate_audio():
             "job_dir": job_dir,
             "custom_heading": custom_heading,
             "resume_from_chunk_index": 0,
+            "word_replacements": word_replacements,
         }
 
         _persist_job_state(job_id, force=True)
+
+        # Write metadata.json so word_replacements (and other fields) survive server restarts
+        _meta_path = job_dir_path / JOB_METADATA_FILENAME
+        try:
+            _meta_path.parent.mkdir(parents=True, exist_ok=True)
+            _existing_meta = {}
+            if _meta_path.exists():
+                try:
+                    with _meta_path.open("r", encoding="utf-8") as _f:
+                        _existing_meta = json.load(_f)
+                except Exception:
+                    pass
+            _existing_meta["word_replacements"] = word_replacements
+            _existing_meta.setdefault("job_id", job_id)
+            _existing_meta.setdefault("created_at", jobs[job_id]["created_at"])
+            with _meta_path.open("w", encoding="utf-8") as _f:
+                json.dump(_existing_meta, _f, indent=2, ensure_ascii=False)
+        except Exception as _exc:
+            logger.warning("Failed to write metadata.json at job creation for %s: %s", job_id, _exc)
+
         _archive_old_jobs()
 
         # Add to queue
@@ -6234,6 +6341,7 @@ def _build_library_listing():
                             engine = chunks_meta.get("engine")
                     except Exception:
                         pass
+                _word_replacements = (jobs.get(job_id) or {}).get("word_replacements") or metadata.get("word_replacements") or []
                 library_items.append({
                     "job_id": job_id,
                     "output_file": chapters_data[0]["output_file"],
@@ -6249,6 +6357,7 @@ def _build_library_listing():
                     "full_story": full_story_entry,
                     "has_chunks": has_chunks,
                     "engine": engine,
+                    "word_replacements": _word_replacements,
                 })
             elif full_story_entry:
                 chunks_meta_path = job_dir / "chunks_metadata.json"
@@ -6262,6 +6371,7 @@ def _build_library_listing():
                             engine = chunks_meta.get("engine")
                     except Exception:
                         pass
+                _word_replacements2 = (jobs.get(job_id) or {}).get("word_replacements") or metadata.get("word_replacements") or []
                 library_items.append({
                     "job_id": job_id,
                     "output_file": full_story_entry["output_file"],
@@ -6277,6 +6387,7 @@ def _build_library_listing():
                     "full_story": full_story_entry,
                     "has_chunks": has_chunks,
                     "engine": engine,
+                    "word_replacements": _word_replacements2,
                 })
             continue
 
@@ -7209,6 +7320,55 @@ def rebuild_library_all(job_id):
         return jsonify({"success": False, "error": "Failed to rebuild outputs"}), 500
 
 
+@app.route('/api/library/<job_id>/word-replacements', methods=['GET', 'PUT'])
+def library_job_word_replacements(job_id):
+    """Get or update the word replacement registry for a library job."""
+    job_dir = OUTPUT_DIR / job_id
+    if not job_dir.is_dir():
+        return jsonify({"success": False, "error": "Job not found"}), 404
+    metadata_path = job_dir / "metadata.json"
+
+    if request.method == 'GET':
+        replacements = (jobs.get(job_id) or {}).get("word_replacements") or []
+        if not replacements and metadata_path.exists():
+            try:
+                with metadata_path.open("r", encoding="utf-8") as f:
+                    replacements = json.load(f).get("word_replacements") or []
+            except Exception:
+                pass
+        return jsonify({"success": True, "word_replacements": replacements})
+
+    # PUT — update
+    data = request.get_json(silent=True) or {}
+    raw = data.get("word_replacements")
+    if not isinstance(raw, list):
+        return jsonify({"success": False, "error": "word_replacements must be a list"}), 400
+    replacements = [
+        r for r in raw
+        if isinstance(r, dict) and r.get("original") and r.get("replacement")
+    ]
+    # Update in-memory job entry (outside queue_lock to avoid SQLite deadlock)
+    job_in_memory = False
+    with queue_lock:
+        if job_id in jobs:
+            jobs[job_id]["word_replacements"] = replacements
+            job_in_memory = True
+    if job_in_memory:
+        _persist_job_state(job_id, force=True)
+    # Persist to metadata.json so it survives server restarts
+    if metadata_path.exists():
+        try:
+            with metadata_path.open("r", encoding="utf-8") as f:
+                meta = json.load(f)
+            meta["word_replacements"] = replacements
+            with metadata_path.open("w", encoding="utf-8") as f:
+                json.dump(meta, f, indent=2, ensure_ascii=False)
+        except Exception as exc:
+            logger.warning("Failed to persist word_replacements to metadata for %s: %s", job_id, exc)
+    invalidate_library_cache()
+    return jsonify({"success": True, "word_replacements": replacements})
+
+
 @app.route('/api/library/<job_id>/repair', methods=['POST'])
 def repair_library_job(job_id):
     """Rebuild missing review manifest/metadata from existing chunk files."""
@@ -7473,18 +7633,16 @@ def qwen3_metadata():
             "success": False,
             "error": "qwen-tts is not installed. Run setup to enable Qwen3-TTS local mode."
         }), 400
-    # Return static metadata - these are the known Qwen3 speakers/languages
+    # Return static metadata - these are the actual Qwen3-TTS-CustomVoice supported speakers/languages
     # Avoids loading the full model (~3-4GB GPU) just to get this list
     return jsonify({
         "success": True,
         "speakers": [
-            "Chelsie", "Ethan", "Serena", "Asher", "Nova", "Aria", "Zephyr", "Ivy",
-            "Jasper", "Luna", "Orion", "Sage", "Willow", "Finn", "Aurora", "Kai",
-            "Ember", "River", "Skye", "Phoenix"
+            "aiden", "dylan", "eric", "ono_anna", "ryan", "serena", "sohee", "uncle_fu", "vivian"
         ],
         "languages": [
-            "Auto", "English", "Chinese", "Japanese", "Korean", "French", "German",
-            "Spanish", "Italian", "Portuguese", "Russian", "Arabic", "Hindi"
+            "auto", "english", "chinese", "japanese", "korean", "french", "german",
+            "spanish", "italian", "portuguese", "russian"
         ],
     })
 
@@ -7641,5 +7799,6 @@ if __name__ == '__main__':
     _archive_old_jobs()
     _cleanup_orphaned_chatterbox_voices()
     _cleanup_orphaned_regen_folders()
-    threading.Timer(1.0, lambda: webbrowser.open("http://localhost:5000")).start()
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    if os.environ.get("WERKZEUG_RUN_MAIN") != "true":
+        threading.Timer(1.5, lambda: webbrowser.open("http://localhost:5000")).start()
+    app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)

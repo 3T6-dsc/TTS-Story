@@ -513,6 +513,7 @@ function displayLibraryItems(items) {
                     ${engineLabel ? `<span class="library-item-engine">${engineLabel}</span>` : ''}
                     <span class="library-item-size">${fileSizeMB} MB</span>
                     <span class="library-item-format">${item.format.toUpperCase()}</span>
+                    <button class="btn btn-secondary btn-xs library-item-meta-action" type="button" onclick="openLibraryAwr('${item.job_id}')">Alt Words</button>
                     <button class="btn btn-secondary btn-xs library-item-meta-action" type="button" onclick="repairLibraryItem('${item.job_id}', this)">Repair</button>
                     <button class="btn btn-secondary btn-xs library-item-meta-action" type="button" onclick="deleteLibraryItem('${item.job_id}')">Delete</button>
                     <button type="button" class="help-icon library-item-meta-action" data-help-id="audio-library-actions" aria-label="Help: Audio Library Actions">?</button>
@@ -3429,6 +3430,389 @@ async function triggerBulkSpeakerApplyFx(jobId, speaker, chunks, button) {
         button.disabled = false;
     }
 }
+
+// ─── Library Alt Word Registry ───────────────────────────────────────────────
+// Reuses the full AWR modal from index.html (awr-entry-overlay / awr-modal).
+// When _libraryAwrJobId is set, the modal's OK button saves to the backend
+// instead of adding a single entry to the main-page registry.
+
+let _libraryAwrJobId = null;
+let _libraryAwrList = [];
+let _libraryAwrEditIdx = null; // index being edited, or null for new
+
+async function openLibraryAwr(jobId) {
+    _libraryAwrJobId = jobId;
+    _libraryAwrList = [];
+    _libraryAwrEditIdx = null;
+
+    // Load existing replacements from backend
+    try {
+        const resp = await fetch(`/api/library/${jobId}/word-replacements`);
+        const data = await resp.json();
+        if (data.success) _libraryAwrList = data.word_replacements || [];
+    } catch (e) {
+        console.warn('Failed to load library AWR:', e);
+    }
+
+    // Reuse the main AWR modal — swap its title and show the registry table view
+    _openLibraryAwrMainModal();
+}
+
+function _openLibraryAwrMainModal() {
+    // We repurpose the existing awr-modal (the main registry modal, not the entry sub-modal)
+    // by injecting a library-specific overlay on top of it.
+    // Simpler: build a standalone modal using the same CSS classes as the main AWR entry modal.
+    let overlay = document.getElementById('lib-awr-registry-overlay');
+    if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.id = 'lib-awr-registry-overlay';
+        overlay.className = 'modal-overlay hidden';
+        overlay.innerHTML = `
+            <div class="modal hidden" id="lib-awr-registry-modal" style="max-width:680px;width:95%;z-index:1300;">
+                <div class="modal-header">
+                    <h3>Alt Word Registry</h3>
+                    <button class="modal-close" id="lib-awr-reg-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <p class="awr-description">
+                        These replacements are applied whenever audio chunks are regenerated for this job.
+                        Use this to replace words the engine mispronounces with phonetic alternatives.
+                    </p>
+                    <div class="awr-toolbar">
+                        <button class="btn btn-primary btn-sm" id="lib-awr-reg-add-btn">＋ Add Entry</button>
+                    </div>
+                    <div class="awr-table-wrapper">
+                        <table class="awr-table">
+                            <thead><tr>
+                                <th>Original Word / Phrase</th>
+                                <th>Replacement</th>
+                                <th></th>
+                            </tr></thead>
+                            <tbody id="lib-awr-reg-tbody">
+                                <tr><td colspan="3" class="awr-empty">No entries yet.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" id="lib-awr-reg-cancel">Cancel</button>
+                    <button class="btn btn-primary" id="lib-awr-reg-save">Save</button>
+                </div>
+            </div>`;
+        document.body.appendChild(overlay);
+
+        document.getElementById('lib-awr-reg-close').addEventListener('click', closeLibraryAwr);
+        document.getElementById('lib-awr-reg-cancel').addEventListener('click', closeLibraryAwr);
+        overlay.addEventListener('click', e => { if (e.target === overlay) closeLibraryAwr(); });
+        document.getElementById('lib-awr-reg-add-btn').addEventListener('click', () => {
+            _libraryAwrEditIdx = null;
+            _openLibraryAwrEntryModal(null);
+        });
+    }
+
+    // Reassign onclick every open so it always captures the current _libraryAwrJobId
+    document.getElementById('lib-awr-reg-save').onclick = saveLibraryAwr;
+
+    _renderLibraryAwrRegTable();
+    overlay.classList.remove('hidden');
+    document.getElementById('lib-awr-registry-modal').classList.remove('hidden');
+}
+
+function _renderLibraryAwrRegTable() {
+    const tbody = document.getElementById('lib-awr-reg-tbody');
+    if (!tbody) return;
+    if (_libraryAwrList.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="3" class="awr-empty">No entries yet. Click <strong>＋ Add Entry</strong> to get started.</td></tr>';
+        return;
+    }
+    tbody.innerHTML = _libraryAwrList.map((entry, idx) => `
+        <tr>
+            <td class="awr-original-cell">${escapeHtml(entry.original)}</td>
+            <td class="awr-replacement-cell">${escapeHtml(entry.replacement)}</td>
+            <td class="awr-actions-cell">
+                <button class="awr-edit-btn" data-idx="${idx}" title="Edit">✏️</button>
+                <button class="awr-delete-btn" data-idx="${idx}" title="Delete">🗑️</button>
+            </td>
+        </tr>`).join('');
+    tbody.querySelectorAll('.awr-edit-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            _libraryAwrEditIdx = Number(btn.dataset.idx);
+            _openLibraryAwrEntryModal(_libraryAwrList[_libraryAwrEditIdx]);
+        });
+    });
+    tbody.querySelectorAll('.awr-delete-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            _libraryAwrList.splice(Number(btn.dataset.idx), 1);
+            _renderLibraryAwrRegTable();
+        });
+    });
+}
+
+function _ensureLibraryAwrEntryModal() {
+    if (document.getElementById('lib-awr-entry-overlay')) return;
+
+    const overlay = document.createElement('div');
+    overlay.id = 'lib-awr-entry-overlay';
+    overlay.className = 'modal-overlay hidden';
+    overlay.style.zIndex = '1600';
+    overlay.innerHTML = `
+        <div class="modal" id="lib-awr-entry-modal" style="max-width:520px;width:95%;z-index:1601;">
+            <div class="modal-header">
+                <h3 id="lib-awr-entry-title">Add Alt Word Entry</h3>
+                <button class="modal-close" id="lib-awr-entry-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="awr-entry-fields">
+                    <div class="awr-field-row">
+                        <label class="awr-label">Original word / phrase</label>
+                        <input type="text" id="lib-awr-original-input" class="awr-text-input" placeholder="e.g. Worcestershire">
+                    </div>
+                    <div class="awr-field-row">
+                        <label class="awr-label">Replacement word / phrase</label>
+                        <input type="text" id="lib-awr-replacement-input" class="awr-text-input" placeholder="e.g. Wooster-sher">
+                    </div>
+                    <div class="awr-preview-section">
+                        <div class="awr-preview-row">
+                            <div class="awr-preview-field">
+                                <label class="awr-label">TTS Engine</label>
+                                <select id="lib-awr-preview-engine" class="awr-select">
+                                    <option value="kokoro">Kokoro</option>
+                                    <option value="chatterbox_turbo_local">Chatterbox</option>
+                                    <option value="chatterbox_turbo_api">Chatterbox API</option>
+                                    <option value="voxcpm_local">VoxCPM 1.5</option>
+                                    <option value="pocket_tts">Pocket TTS · Clone</option>
+                                    <option value="pocket_tts_preset">Pocket TTS · Preset</option>
+                                    <option value="qwen3_custom">Qwen3-TTS</option>
+                                    <option value="qwen3_clone">Qwen3-TTS · Clone</option>
+                                </select>
+                            </div>
+                            <div class="awr-preview-field awr-preview-field-voice">
+                                <label class="awr-label">Voice</label>
+                                <select id="lib-awr-preview-voice" class="awr-select">
+                                    <option value="">-- Select voice --</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="awr-preview-buttons">
+                            <button class="btn btn-sm btn-secondary" id="lib-awr-play-original" disabled>▶ Play Original</button>
+                            <button class="btn btn-sm btn-secondary" id="lib-awr-play-replacement" disabled>▶ Play Replacement</button>
+                            <span class="awr-preview-status" id="lib-awr-preview-status"></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" id="lib-awr-entry-cancel">Cancel</button>
+                <button class="btn btn-primary" id="lib-awr-entry-ok">OK</button>
+            </div>
+        </div>`;
+    document.body.appendChild(overlay);
+
+    // Engine change → repopulate voices
+    document.getElementById('lib-awr-preview-engine').addEventListener('change', function () {
+        _libAwrPopulateVoices(this.value);
+    });
+    _libAwrPopulateVoices('kokoro');
+
+    // Preview buttons
+    let _libAwrPreviewAudio = null;
+    const _libAwrStopPreview = () => { if (_libAwrPreviewAudio) { _libAwrPreviewAudio.pause(); _libAwrPreviewAudio = null; } };
+
+    const _libAwrPlayText = async (text) => {
+        _libAwrStopPreview();
+        const engine = document.getElementById('lib-awr-preview-engine').value;
+        const voice = document.getElementById('lib-awr-preview-voice').value;
+        const statusEl = document.getElementById('lib-awr-preview-status');
+        if (!text) return;
+        statusEl.textContent = 'Generating…';
+        try {
+            const resp = await fetch('/api/preview', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text, tts_engine: engine, voice, lang_code: 'a' }),
+            });
+            const data = await resp.json();
+            if (!data.success) { statusEl.textContent = data.error || 'Error'; return; }
+            statusEl.textContent = '';
+            const audioSrc = data.audio_url
+                ? data.audio_url
+                : `data:${data.mime_type || 'audio/wav'};base64,${data.audio_base64}`;
+            _libAwrPreviewAudio = new Audio(audioSrc);
+            _libAwrPreviewAudio.play();
+        } catch (e) {
+            statusEl.textContent = 'Error';
+        }
+    };
+
+    document.getElementById('lib-awr-play-original').addEventListener('click', () => {
+        _libAwrPlayText((document.getElementById('lib-awr-original-input').value || '').trim());
+    });
+    document.getElementById('lib-awr-play-replacement').addEventListener('click', () => {
+        _libAwrPlayText((document.getElementById('lib-awr-replacement-input').value || '').trim());
+    });
+
+    // Enable/disable play buttons based on input
+    const _updatePlayBtns = () => {
+        const hasOrig = !!(document.getElementById('lib-awr-original-input').value || '').trim();
+        const hasRepl = !!(document.getElementById('lib-awr-replacement-input').value || '').trim();
+        document.getElementById('lib-awr-play-original').disabled = !hasOrig;
+        document.getElementById('lib-awr-play-replacement').disabled = !hasRepl;
+    };
+    document.getElementById('lib-awr-original-input').addEventListener('input', _updatePlayBtns);
+    document.getElementById('lib-awr-replacement-input').addEventListener('input', _updatePlayBtns);
+}
+
+async function _libAwrPopulateVoices(engineName) {
+    const select = document.getElementById('lib-awr-preview-voice');
+    if (!select) return;
+    const prev = select.value;
+    select.innerHTML = '<option value="">-- Select voice --</option>';
+
+    const norm = (engineName || '').toLowerCase().replace(/[_-]/g, '');
+    const usesPrompts = norm.includes('chatterbox') || norm.includes('voxcpm')
+        || (norm.includes('pockettts') && !norm.includes('pocketttspreset'))
+        || (norm.includes('qwen3') && norm.includes('clone'));
+    const isQwen = norm.includes('qwen3') && !norm.includes('clone');
+    const isPocketPreset = norm.includes('pocketttspreset');
+
+    try {
+        if (usesPrompts) {
+            const resp = await fetch('/api/voice-prompts');
+            const data = await resp.json();
+            if (data.success && data.prompts) {
+                data.prompts.forEach(p => {
+                    const opt = document.createElement('option');
+                    opt.value = p.path || p.name;
+                    opt.textContent = p.display || p.name;
+                    select.appendChild(opt);
+                });
+            }
+        } else if (isQwen) {
+            const resp = await fetch('/api/qwen3/metadata');
+            const data = await resp.json();
+            if (data.success && data.speakers) {
+                data.speakers.forEach(s => {
+                    const opt = document.createElement('option');
+                    opt.value = s;
+                    opt.textContent = s;
+                    select.appendChild(opt);
+                });
+            }
+        } else if (isPocketPreset) {
+            const resp = await fetch('/api/pocket-tts/voices');
+            const data = await resp.json();
+            if (data.success && data.voices) {
+                data.voices.forEach(v => {
+                    const opt = document.createElement('option');
+                    opt.value = v;
+                    opt.textContent = v;
+                    select.appendChild(opt);
+                });
+            }
+        } else {
+            if (window.availableVoices) {
+                Object.values(window.availableVoices).forEach(vc => {
+                    const grp = document.createElement('optgroup');
+                    grp.label = vc.language || 'Voices';
+                    (vc.voices || []).forEach(name => {
+                        const opt = document.createElement('option');
+                        opt.value = name;
+                        opt.textContent = name;
+                        grp.appendChild(opt);
+                    });
+                    select.appendChild(grp);
+                });
+            }
+        }
+    } catch (e) {
+        console.warn('_libAwrPopulateVoices error:', e);
+    }
+    if (prev) select.value = prev;
+}
+
+function _openLibraryAwrEntryModal(entry) {
+    _ensureLibraryAwrEntryModal();
+
+    const overlay = document.getElementById('lib-awr-entry-overlay');
+    const modal = document.getElementById('lib-awr-entry-modal');
+
+    document.getElementById('lib-awr-entry-title').textContent = entry ? 'Edit Alt Word Entry' : 'Add Alt Word Entry';
+    document.getElementById('lib-awr-original-input').value = entry ? entry.original : '';
+    document.getElementById('lib-awr-replacement-input').value = entry ? entry.replacement : '';
+    document.getElementById('lib-awr-preview-status').textContent = '';
+    document.getElementById('lib-awr-play-original').disabled = !entry?.original;
+    document.getElementById('lib-awr-play-replacement').disabled = !entry?.replacement;
+
+    overlay.classList.remove('hidden');
+    modal.classList.remove('hidden');
+    document.getElementById('lib-awr-original-input').focus();
+
+    const closeEntry = () => {
+        overlay.classList.add('hidden');
+        modal.classList.add('hidden');
+        document.getElementById('lib-awr-entry-ok').onclick = null;
+        document.getElementById('lib-awr-entry-close').onclick = null;
+        document.getElementById('lib-awr-entry-cancel').onclick = null;
+    };
+
+    document.getElementById('lib-awr-entry-ok').onclick = () => {
+        const orig = (document.getElementById('lib-awr-original-input').value || '').trim();
+        const repl = (document.getElementById('lib-awr-replacement-input').value || '').trim();
+        if (!orig || !repl) return;
+        if (_libraryAwrEditIdx !== null) {
+            _libraryAwrList[_libraryAwrEditIdx] = { original: orig, replacement: repl };
+            _libraryAwrEditIdx = null;
+        } else {
+            if (_libraryAwrList.some(r => r.original.toLowerCase() === orig.toLowerCase())) {
+                alert('An entry for that word already exists.');
+                return;
+            }
+            _libraryAwrList.push({ original: orig, replacement: repl });
+        }
+        closeEntry();
+        _renderLibraryAwrRegTable();
+    };
+
+    document.getElementById('lib-awr-entry-close').onclick = closeEntry;
+    document.getElementById('lib-awr-entry-cancel').onclick = closeEntry;
+}
+
+function closeLibraryAwr() {
+    const overlay = document.getElementById('lib-awr-registry-overlay');
+    const modal = document.getElementById('lib-awr-registry-modal');
+    if (overlay) overlay.classList.add('hidden');
+    if (modal) modal.classList.add('hidden');
+    _libraryAwrJobId = null;
+    _libraryAwrList = [];
+    _libraryAwrEditIdx = null;
+}
+
+async function saveLibraryAwr() {
+    const jobId = _libraryAwrJobId;
+    if (!jobId) { closeLibraryAwr(); return; }
+    const saveBtn = document.getElementById('lib-awr-reg-save');
+    if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
+    try {
+        const resp = await fetch(`/api/library/${jobId}/word-replacements`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ word_replacements: _libraryAwrList }),
+        });
+        const data = await resp.json();
+        if (!data.success) {
+            alert('Failed to save: ' + (data.error || 'Unknown error'));
+            return;
+        }
+        closeLibraryAwr();
+    } catch (e) {
+        console.error('Save library AWR error:', e);
+        alert('Failed to save Alt Word Registry.');
+    } finally {
+        if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save'; }
+    }
+}
+
+// ─── End Library Alt Word Registry ───────────────────────────────────────────
 
 // Clear all library items
 async function clearLibrary() {

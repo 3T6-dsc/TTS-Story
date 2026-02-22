@@ -225,7 +225,7 @@ class Qwen3CustomVoiceEngine(TtsEngineBase):
     ) -> tuple[np.ndarray, int]:
         wavs, sr = self.model.generate_custom_voice(
             text=text,
-            language=language or "Auto",
+            language=(language or "auto").lower(),
             speaker=speaker,
             instruct=instruct or "",
         )

@@ -110,6 +110,35 @@ class Qwen3VoiceCloneEngine(TtsEngineBase):
     def supported_languages(self) -> List[str]:
         return list(self._supported_languages or [])
 
+    def generate_audio(
+        self,
+        text: str,
+        voice: Optional[str] = None,
+        lang_code: Optional[str] = None,
+        speed: float = 1.0,
+        sample_rate: Optional[int] = None,
+        audio_prompt_path: Optional[str] = None,
+        fx_settings=None,
+        **_kwargs,
+    ) -> np.ndarray:
+        """Single-clip synthesis for preview use."""
+        prompt_path = audio_prompt_path or self.default_prompt
+        if not prompt_path:
+            raise ValueError("Qwen3 Voice Clone requires a reference audio prompt.")
+        prompt_path = self._resolve_prompt_path(prompt_path)
+        prompt_text = self._transcribe_audio(prompt_path) if prompt_path else ""
+        language = lang_code or self.default_language or "Auto"
+        wavs, sr = self.model.generate_voice_clone(
+            text=text,
+            language=language,
+            ref_audio=prompt_path,
+            ref_text=prompt_text or "",
+            x_vector_only_mode=not bool(prompt_text),
+        )
+        audio = np.asarray(wavs[0], dtype=np.float32)
+        self._sample_rate = int(sr)
+        return self.post_processor.apply_post_pipeline(audio, int(sr), None)
+
     def generate_batch(
         self,
         segments: List[Dict],

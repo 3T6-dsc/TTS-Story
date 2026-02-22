@@ -57,9 +57,19 @@ models/
 data/voice_prompts/*
 !data/voice_prompts/.gitkeep
 
+# Job data (user-generated, not for repo)
+data/jobs/
+data/chatterbox_voices.json
+data/custom_voices.json
+data/*.db
+
 # External voices cache
 data/external_voices/
 data/external_voices_cache.json
+
+# Personal sync scripts
+sync_to_repo.py
+sync-to-git.bat
 
 # Sync state
 .sync_state.json

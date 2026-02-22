@@ -808,6 +808,7 @@ async function fetchSpeakerProfiles() {
     }
     const context = contextParts.join('\n');
     const promptOverride = document.getElementById('gemini-speaker-profile-prompt')?.value?.trim() || '';
+    const processedText = document.getElementById('input-text')?.value?.trim() || '';
     try {
         const response = await fetch('/api/gemini/speaker-profiles', {
             method: 'POST',
@@ -815,7 +816,8 @@ async function fetchSpeakerProfiles() {
             body: JSON.stringify({
                 speakers: currentStats.speakers,
                 context,
-                prompt_override: promptOverride || undefined
+                prompt_override: promptOverride || undefined,
+                processed_text: processedText || undefined
             })
         });
         const data = await response.json();
@@ -2773,61 +2775,64 @@ function setupEventListeners() {
     if (projectModalFooterClose) {
         projectModalFooterClose.addEventListener('click', closeProjectModal);
     }
+    function resetBatchModal() {
+        if (batchPrefixInput) {
+            batchPrefixInput.value = '';
+        }
+        if (batchStatus) {
+            batchStatus.textContent = '';
+        }
+        if (batchProgress) {
+            batchProgress.style.display = 'none';
+        }
+        if (batchComplete) {
+            batchComplete.classList.add('hidden');
+        }
+        if (batchOkBtn) {
+            batchOkBtn.classList.add('hidden');
+        }
+        if (batchModalCancel) {
+            batchModalCancel.classList.remove('hidden');
+        }
+        if (batchModalConfirm) {
+            batchModalConfirm.classList.remove('hidden');
+            batchModalConfirm.disabled = false;
+            batchModalConfirm.textContent = 'Generate';
+        }
+        if (batchProgressFill) {
+            batchProgressFill.style.width = '0%';
+        }
+        if (batchProgressLabel) {
+            batchProgressLabel.textContent = 'Preparing...';
+        }
+    }
     if (batchGenerateBtn) {
         batchGenerateBtn.addEventListener('click', () => {
             if (batchModalOverlay) {
                 batchModalOverlay.classList.remove('hidden');
             }
             document.getElementById('speaker-batch-modal')?.classList.remove('hidden');
-            if (batchPrefixInput) {
-                batchPrefixInput.value = '';
-                batchPrefixInput.focus();
-            }
-            if (batchStatus) {
-                batchStatus.textContent = '';
-            }
-            if (batchProgress) {
-                batchProgress.style.display = 'none';
-            }
-            if (batchComplete) {
-                batchComplete.classList.add('hidden');
-            }
-            if (batchOkBtn) {
-                batchOkBtn.classList.add('hidden');
-            }
-            if (batchModalCancel) {
-                batchModalCancel.classList.remove('hidden');
-            }
-            if (batchModalConfirm) {
-                batchModalConfirm.classList.remove('hidden');
-            }
-            if (batchProgressFill) {
-                batchProgressFill.style.width = '0%';
-            }
-            if (batchProgressLabel) {
-                batchProgressLabel.textContent = 'Preparing...';
-            }
+            resetBatchModal();
+            batchPrefixInput?.focus();
         });
+    }
+    function closeBatchModal() {
+        batchModalOverlay?.classList.add('hidden');
+        document.getElementById('speaker-batch-modal')?.classList.add('hidden');
+        resetBatchModal();
     }
     if (batchModalOverlay) {
         batchModalOverlay.addEventListener('click', event => {
             if (event.target === batchModalOverlay) {
-                batchModalOverlay.classList.add('hidden');
-                document.getElementById('speaker-batch-modal')?.classList.add('hidden');
+                closeBatchModal();
             }
         });
     }
     if (batchModalClose) {
-        batchModalClose.addEventListener('click', () => {
-            batchModalOverlay?.classList.add('hidden');
-            document.getElementById('speaker-batch-modal')?.classList.add('hidden');
-        });
+        batchModalClose.addEventListener('click', closeBatchModal);
     }
     if (batchModalCancel) {
-        batchModalCancel.addEventListener('click', () => {
-            batchModalOverlay?.classList.add('hidden');
-            document.getElementById('speaker-batch-modal')?.classList.add('hidden');
-        });
+        batchModalCancel.addEventListener('click', closeBatchModal);
     }
     if (batchModalConfirm) {
         batchModalConfirm.addEventListener('click', async () => {
@@ -2862,8 +2867,7 @@ function setupEventListeners() {
     }
     if (batchOkBtn) {
         batchOkBtn.addEventListener('click', () => {
-            batchModalOverlay?.classList.add('hidden');
-            document.getElementById('speaker-batch-modal')?.classList.add('hidden');
+            closeBatchModal();
             document.querySelector('.tab-button[data-tab="generate"]')?.click();
         });
     }
@@ -4118,6 +4122,7 @@ async function generateAudio() {
     const outputBitrate = document.getElementById('job-output-bitrate')?.value || undefined;
 
     const selectedEngine = getSelectedJobEngine() || runtimeSettings?.tts_engine;
+    const wordReplacements = getAltWordRegistry().filter(e => e.original && e.replacement);
     const payload = {
         text,
         split_by_chapter: splitByChapter,
@@ -4125,6 +4130,9 @@ async function generateAudio() {
         voice_assignments: voiceAssignments,
         review_mode: true  // Always enabled - chunk review happens in library
     };
+    if (wordReplacements.length > 0) {
+        payload.word_replacements = wordReplacements;
+    }
     if (customHeading) {
         payload.custom_heading = customHeading;
     }
@@ -4860,3 +4868,377 @@ function insertTextAtCursor(textarea, text) {
 }
 
 document.addEventListener('DOMContentLoaded', initParalinguisticTags);
+
+// ============================================================
+// Alt Word Registry
+// ============================================================
+
+const ALT_WORD_REGISTRY_KEY = 'tts-alt-word-registry';
+
+// In-memory registry: [{original, replacement}]
+let altWordRegistry = [];
+
+// Currently-playing preview audio for the entry modal
+let awrPreviewAudio = null;
+// Index being edited (-1 = new entry)
+let awrEditIndex = -1;
+
+function loadAltWordRegistry() {
+    // Session-only: do not restore from localStorage
+    altWordRegistry = [];
+}
+
+function saveAltWordRegistry() {
+    // Session-only: do not persist to localStorage
+}
+
+/** Return the registry as [{original, replacement}] for use by generateAudio */
+function getAltWordRegistry() {
+    return altWordRegistry.slice();
+}
+window.getAltWordRegistry = getAltWordRegistry;
+
+/** Count case-insensitive occurrences of `word` in `text` (whole-word match) */
+function countWordInstances(word, text) {
+    if (!word || !text) return 0;
+    try {
+        const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const re = new RegExp(escaped, 'gi');
+        return (text.match(re) || []).length;
+    } catch (e) {
+        return 0;
+    }
+}
+
+function getCurrentInputText() {
+    return document.getElementById('input-text')?.value || '';
+}
+
+function renderAltWordTable() {
+    const tbody = document.getElementById('awr-table-body');
+    const countLabel = document.getElementById('awr-count-label');
+    if (!tbody) return;
+
+    const text = getCurrentInputText();
+
+    if (altWordRegistry.length === 0) {
+        tbody.innerHTML = '<tr id="awr-empty-row"><td colspan="4" class="awr-empty">No entries yet. Click <strong>＋ Add Entry</strong> to get started.</td></tr>';
+        if (countLabel) countLabel.textContent = '';
+        return;
+    }
+
+    if (countLabel) countLabel.textContent = `${altWordRegistry.length} entr${altWordRegistry.length === 1 ? 'y' : 'ies'}`;
+
+    tbody.innerHTML = altWordRegistry.map((entry, idx) => {
+        const instances = countWordInstances(entry.original, text);
+        const badgeClass = instances === 0 ? 'awr-instances-badge awr-zero' : 'awr-instances-badge';
+        return `
+        <tr>
+            <td class="awr-original-cell">${escapeHtml(entry.original)}</td>
+            <td class="awr-replacement-cell">${escapeHtml(entry.replacement)}</td>
+            <td class="awr-instances-cell"><span class="${badgeClass}">${instances}</span></td>
+            <td class="awr-actions-cell">
+                <button class="awr-edit-btn" data-idx="${idx}" title="Edit">✏️</button>
+                <button class="awr-delete-btn" data-idx="${idx}" title="Delete">🗑️</button>
+            </td>
+        </tr>`;
+    }).join('');
+
+    // Bind row action buttons
+    tbody.querySelectorAll('.awr-edit-btn').forEach(btn => {
+        btn.addEventListener('click', () => openAwrEntryModal(parseInt(btn.dataset.idx, 10)));
+    });
+    tbody.querySelectorAll('.awr-delete-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const idx = parseInt(btn.dataset.idx, 10);
+            altWordRegistry.splice(idx, 1);
+            saveAltWordRegistry();
+            renderAltWordTable();
+        });
+    });
+}
+
+// ---- Main registry modal ----
+
+function openAltWordRegistryModal() {
+    renderAltWordTable();
+    document.getElementById('alt-word-registry-overlay')?.classList.remove('hidden');
+    document.getElementById('alt-word-registry-modal')?.classList.remove('hidden');
+}
+
+function closeAltWordRegistryModal() {
+    document.getElementById('alt-word-registry-overlay')?.classList.add('hidden');
+    document.getElementById('alt-word-registry-modal')?.classList.add('hidden');
+}
+
+// ---- Entry sub-modal ----
+
+async function awrPopulateVoiceSelect(engineName) {
+    const select = document.getElementById('awr-preview-voice');
+    if (!select) return;
+    const prev = select.value;
+    select.innerHTML = '<option value="">-- Select voice --</option>';
+
+    const norm = (engineName || '').toLowerCase().replace(/[_-]/g, '');
+    const usesPrompts = norm.includes('chatterbox') || norm.includes('voxcpm')
+        || (norm.includes('pockettts') && !norm.includes('pocketttspreset'))
+        || (norm.includes('qwen3') && norm.includes('clone'));
+    const isQwen = norm.includes('qwen3') && !norm.includes('clone');
+    const isPocketPreset = norm.includes('pocketttspreset');
+
+    try {
+        if (usesPrompts) {
+            const resp = await fetch('/api/voice-prompts');
+            const data = await resp.json();
+            if (data.success && data.prompts) {
+                data.prompts.forEach(p => {
+                    const opt = document.createElement('option');
+                    opt.value = p.path || p.name;
+                    opt.textContent = p.display || p.name;
+                    select.appendChild(opt);
+                });
+            }
+        } else if (isQwen) {
+            const resp = await fetch('/api/qwen3/metadata');
+            const data = await resp.json();
+            if (data.success && data.speakers) {
+                data.speakers.forEach(s => {
+                    const opt = document.createElement('option');
+                    opt.value = s;
+                    opt.textContent = s;
+                    select.appendChild(opt);
+                });
+            }
+        } else if (isPocketPreset) {
+            const resp = await fetch('/api/pocket-tts/voices');
+            const data = await resp.json();
+            if (data.success && data.voices) {
+                data.voices.forEach(v => {
+                    const opt = document.createElement('option');
+                    opt.value = v;
+                    opt.textContent = v;
+                    select.appendChild(opt);
+                });
+            }
+        } else {
+            // Kokoro / standard voices
+            if (window.availableVoices) {
+                Object.values(window.availableVoices).forEach(vc => {
+                    const grp = document.createElement('optgroup');
+                    grp.label = vc.language || 'Voices';
+                    (vc.voices || []).forEach(name => {
+                        const opt = document.createElement('option');
+                        opt.value = name;
+                        opt.textContent = name;
+                        grp.appendChild(opt);
+                    });
+                    select.appendChild(grp);
+                });
+            }
+        }
+    } catch (e) {
+        console.warn('AWR: failed to load voices', e);
+    }
+
+    // Restore previous selection if still valid
+    if (prev && Array.from(select.options).some(o => o.value === prev)) {
+        select.value = prev;
+    }
+    updateAwrPlayButtons();
+}
+
+function updateAwrPlayButtons() {
+    const voice = document.getElementById('awr-preview-voice')?.value || '';
+    const hasVoice = voice.trim() !== '';
+    const origBtn = document.getElementById('awr-play-original');
+    const replBtn = document.getElementById('awr-play-replacement');
+    if (origBtn) origBtn.disabled = !hasVoice;
+    if (replBtn) replBtn.disabled = !hasVoice;
+}
+
+function openAwrEntryModal(editIdx = -1) {
+    awrEditIndex = editIdx;
+    const titleEl = document.getElementById('awr-entry-title');
+    const origInput = document.getElementById('awr-original-input');
+    const replInput = document.getElementById('awr-replacement-input');
+
+    if (editIdx >= 0 && altWordRegistry[editIdx]) {
+        if (titleEl) titleEl.textContent = 'Edit Alt Word Entry';
+        if (origInput) origInput.value = altWordRegistry[editIdx].original;
+        if (replInput) replInput.value = altWordRegistry[editIdx].replacement;
+    } else {
+        if (titleEl) titleEl.textContent = 'Add Alt Word Entry';
+        if (origInput) origInput.value = '';
+        if (replInput) replInput.value = '';
+    }
+
+    // Sync engine dropdown to current job engine
+    const engineSelect = document.getElementById('awr-preview-engine');
+    if (engineSelect) {
+        const currentEngine = getSelectedJobEngine() || window.runtimeSettings?.tts_engine || 'kokoro';
+        const norm = currentEngine.toLowerCase().replace(/[_-]/g, '');
+        const matchingOpt = Array.from(engineSelect.options).find(o =>
+            o.value.toLowerCase().replace(/[_-]/g, '') === norm
+        );
+        if (matchingOpt) engineSelect.value = matchingOpt.value;
+    }
+
+    awrPopulateVoiceSelect(engineSelect?.value || 'kokoro');
+
+    const statusEl = document.getElementById('awr-preview-status');
+    if (statusEl) statusEl.textContent = '';
+
+    document.getElementById('awr-entry-overlay')?.classList.remove('hidden');
+    document.getElementById('awr-entry-modal')?.classList.remove('hidden');
+    origInput?.focus();
+}
+
+function closeAwrEntryModal() {
+    awrStopPreview();
+    document.getElementById('awr-entry-overlay')?.classList.add('hidden');
+    document.getElementById('awr-entry-modal')?.classList.add('hidden');
+}
+
+function awrStopPreview() {
+    if (awrPreviewAudio) {
+        awrPreviewAudio.pause();
+        awrPreviewAudio = null;
+    }
+}
+
+async function awrPlayText(text) {
+    awrStopPreview();
+    const engineSelect = document.getElementById('awr-preview-engine');
+    const voiceSelect = document.getElementById('awr-preview-voice');
+    const statusEl = document.getElementById('awr-preview-status');
+
+    const engineName = engineSelect?.value || 'kokoro';
+    const voice = voiceSelect?.value || '';
+    if (!voice) {
+        if (statusEl) statusEl.textContent = 'Select a voice first.';
+        return;
+    }
+    if (!text.trim()) {
+        if (statusEl) statusEl.textContent = 'No text to preview.';
+        return;
+    }
+
+    if (statusEl) statusEl.textContent = 'Generating…';
+
+    try {
+        const payload = {
+            text: text.trim(),
+            tts_engine: engineName,
+            voice: voice,
+            lang_code: getLangCodeForVoice(voice),
+            speed: 1.0,
+        };
+        const resp = await fetch('/api/preview', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+        const data = await resp.json();
+
+        if (!data.success) {
+            if (statusEl) statusEl.textContent = data.error || 'Preview failed.';
+            return;
+        }
+        const mime = data.mime_type || 'audio/wav';
+        awrPreviewAudio = new Audio(`data:${mime};base64,${data.audio_base64}`);
+        awrPreviewAudio.play();
+        if (statusEl) statusEl.textContent = 'Playing…';
+        awrPreviewAudio.onended = () => {
+            awrPreviewAudio = null;
+            if (statusEl) statusEl.textContent = '';
+        };
+    } catch (e) {
+        if (statusEl) statusEl.textContent = 'Preview error.';
+        console.error('AWR preview error:', e);
+    }
+}
+
+function initAltWordRegistry() {
+    loadAltWordRegistry();
+
+    // Open main modal
+    document.getElementById('alt-word-registry-btn')?.addEventListener('click', openAltWordRegistryModal);
+
+    // Close main modal
+    document.getElementById('alt-word-registry-close')?.addEventListener('click', closeAltWordRegistryModal);
+    document.getElementById('alt-word-registry-cancel')?.addEventListener('click', closeAltWordRegistryModal);
+    document.getElementById('alt-word-registry-overlay')?.addEventListener('click', (e) => {
+        if (e.target === document.getElementById('alt-word-registry-overlay')) closeAltWordRegistryModal();
+    });
+
+    // Open add entry modal
+    document.getElementById('awr-add-btn')?.addEventListener('click', () => openAwrEntryModal(-1));
+
+    // Clear all entries
+    document.getElementById('awr-clear-btn')?.addEventListener('click', () => {
+        if (altWordRegistry.length === 0) return;
+        if (!confirm('Clear all Alt Word Registry entries?')) return;
+        altWordRegistry = [];
+        renderAltWordTable();
+    });
+
+    // Close entry modal
+    document.getElementById('awr-entry-close')?.addEventListener('click', closeAwrEntryModal);
+    document.getElementById('awr-entry-cancel')?.addEventListener('click', closeAwrEntryModal);
+    document.getElementById('awr-entry-overlay')?.addEventListener('click', (e) => {
+        if (e.target === document.getElementById('awr-entry-overlay')) closeAwrEntryModal();
+    });
+
+    // Engine change → repopulate voices
+    document.getElementById('awr-preview-engine')?.addEventListener('change', (e) => {
+        awrPopulateVoiceSelect(e.target.value);
+    });
+
+    // Voice change → update play button state
+    document.getElementById('awr-preview-voice')?.addEventListener('change', updateAwrPlayButtons);
+
+    // Play original
+    document.getElementById('awr-play-original')?.addEventListener('click', () => {
+        const text = document.getElementById('awr-original-input')?.value || '';
+        awrPlayText(text);
+    });
+
+    // Play replacement
+    document.getElementById('awr-play-replacement')?.addEventListener('click', () => {
+        const text = document.getElementById('awr-replacement-input')?.value || '';
+        awrPlayText(text);
+    });
+
+    // OK – save entry
+    document.getElementById('awr-entry-ok')?.addEventListener('click', () => {
+        const original = (document.getElementById('awr-original-input')?.value || '').trim();
+        const replacement = (document.getElementById('awr-replacement-input')?.value || '').trim();
+        if (!original) {
+            alert('Please enter the original word or phrase.');
+            return;
+        }
+        if (!replacement) {
+            alert('Please enter the replacement word or phrase.');
+            return;
+        }
+        const entry = { original, replacement };
+        if (awrEditIndex >= 0 && awrEditIndex < altWordRegistry.length) {
+            altWordRegistry[awrEditIndex] = entry;
+        } else {
+            altWordRegistry.push(entry);
+        }
+        saveAltWordRegistry();
+        closeAwrEntryModal();
+        renderAltWordTable();
+    });
+
+    // Re-render table when text changes (updates instance counts)
+    document.getElementById('input-text')?.addEventListener('input', () => {
+        const overlay = document.getElementById('alt-word-registry-overlay');
+        if (overlay && !overlay.classList.contains('hidden')) {
+            renderAltWordTable();
+        }
+    });
+}
+
+document.addEventListener('DOMContentLoaded', initAltWordRegistry);

@@ -114,6 +114,41 @@ class VoxCPMLocalEngine(TtsEngineBase):
         except Exception:
             return 44100
 
+    def generate_audio(
+        self,
+        text: str,
+        voice: Optional[str] = None,
+        lang_code: Optional[str] = None,
+        speed: float = 1.0,
+        sample_rate: Optional[int] = None,
+        audio_prompt_path: Optional[str] = None,
+        fx_settings=None,
+        **_kwargs,
+    ) -> np.ndarray:
+        """Single-clip synthesis for preview use (skips SoX post-processing)."""
+        prompt_path = audio_prompt_path or self.default_prompt
+        prompt_text = self.default_prompt_text
+        if prompt_path:
+            prompt_path = self._resolve_prompt_path(prompt_path)
+        if prompt_path and not prompt_text:
+            prompt_text = self._transcribe_audio(prompt_path)
+            if not prompt_text:
+                prompt_path = None
+        wav = self.model.generate(
+            text=text,
+            prompt_wav_path=prompt_path,
+            prompt_text=prompt_text,
+            cfg_value=self.cfg_value,
+            inference_timesteps=self.inference_timesteps,
+            normalize=self.normalize,
+            denoise=self.denoise,
+        )
+        audio = np.asarray(wav, dtype=np.float32)
+        max_val = np.abs(audio).max()
+        if max_val > 0:
+            audio = audio / max_val * 0.95
+        return audio
+
     def generate_batch(
         self,
         segments: List[Dict],

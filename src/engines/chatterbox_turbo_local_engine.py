@@ -227,6 +227,28 @@ class ChatterboxTurboLocalEngine(TtsEngineBase):
         return CHATTERBOX_TURBO_SAMPLE_RATE
 
     # ------------------------------------------------------------------ #
+    def generate_audio(
+        self,
+        text: str,
+        voice: Optional[str] = None,
+        lang_code: Optional[str] = None,
+        speed: float = 1.0,
+        sample_rate: Optional[int] = None,
+        audio_prompt_path: Optional[str] = None,
+        fx_settings=None,
+        **_kwargs,
+    ) -> np.ndarray:
+        """Single-clip synthesis for preview use."""
+        assignment = VoiceAssignment(
+            voice=voice or "",
+            lang_code=lang_code,
+            audio_prompt_path=audio_prompt_path or self.default_prompt,
+            speed_override=speed,
+        )
+        audio, sr = self._synthesize(text, assignment, speed, sample_rate)
+        return audio
+
+    # ------------------------------------------------------------------ #
     def generate_batch(
         self,
         segments: List[Dict],

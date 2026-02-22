@@ -70,7 +70,10 @@
                 <div class="text-input-toolbar">
                     <div class="document-upload-bar">
                         <button type="button" id="browse-document-btn" class="btn btn-secondary btn-sm">
-                            📁 Browse Document
+                            📁 Load Document
+                        </button>
+                        <button type="button" id="alt-word-registry-btn" class="btn btn-secondary btn-sm">
+                            🔤 Alt Word Registry
                         </button>
                         <input type="file" id="document-file-input" accept=".txt,.pdf,.doc,.docx,.rtf,.epub,.odt,.md,.html,.htm" style="display: none;">
                         <span class="upload-hint">Supports: TXT, PDF, Word (.doc/.docx), RTF, EPUB, ODT, Markdown, HTML</span>
@@ -308,16 +311,16 @@
         <!-- Library Tab -->
         <div id="library-tab" class="tab-content">
             <div class="section">
-                <div class="section-title-inline">
-                    <h2>Audio Library</h2>
-                    <button type="button" class="help-icon" data-help-id="audio-library" aria-label="Help: Audio Library">?</button>
-                </div>
-                <p class="help-text">
-                    Manage your generated audio files. Play, download, or delete previous generations.
-                </p>
-                <div class="button-group">
-                    <button id="refresh-library-btn" class="btn btn-secondary">Refresh Library</button>
-                    <button id="clear-library-btn" class="btn btn-secondary">Clear All</button>
+                <div class="library-section-header">
+                    <div class="library-section-title">
+                        <h2>Audio Library</h2>
+                        <button type="button" class="help-icon" data-help-id="audio-library" aria-label="Help: Audio Library">?</button>
+                        <span class="library-section-desc">Manage your generated audio files. Play, download, or delete previous generations.</span>
+                    </div>
+                    <div class="button-group library-section-actions">
+                        <button id="refresh-library-btn" class="btn btn-secondary">Refresh Library</button>
+                        <button id="clear-library-btn" class="btn btn-secondary">Clear All</button>
+                    </div>
                 </div>
             </div>
 
@@ -1478,9 +1481,104 @@
         </div>
     </div>
 
-    <script src="/static/js/main.js?v=21"></script>
+    <!-- Alt Word Registry Modal -->
+    <div class="modal-overlay hidden" id="alt-word-registry-overlay">
+        <div class="modal hidden" id="alt-word-registry-modal" style="max-width: 760px; width: 95%;">
+            <div class="modal-header">
+                <h3>🔤 Alt Word Registry</h3>
+                <button class="modal-close" id="alt-word-registry-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="awr-description">
+                    Words listed here will be substituted in each text chunk before it is sent to the TTS engine.
+                    Use this to replace words the engine mispronounces with phonetic alternatives.
+                </p>
+                <div class="awr-toolbar">
+                    <button class="btn btn-primary btn-sm" id="awr-add-btn">＋ Add Entry</button>
+                    <button class="btn btn-secondary btn-sm" id="awr-clear-btn">🗑 Clear All</button>
+                    <span class="awr-count-label" id="awr-count-label"></span>
+                </div>
+                <div class="awr-table-wrapper">
+                    <table class="awr-table" id="awr-table">
+                        <thead>
+                            <tr>
+                                <th>Original Word / Phrase</th>
+                                <th>Replacement</th>
+                                <th>Instances in Text</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody id="awr-table-body">
+                            <tr id="awr-empty-row">
+                                <td colspan="4" class="awr-empty">No entries yet. Click <strong>＋ Add Entry</strong> to get started.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" id="alt-word-registry-cancel">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Alt Word Registry – Add/Edit Entry Sub-Modal -->
+    <div class="modal-overlay hidden" id="awr-entry-overlay" style="z-index: 1500;">
+        <div class="modal hidden" id="awr-entry-modal" style="max-width: 520px; width: 95%; z-index: 1501;">
+            <div class="modal-header">
+                <h3 id="awr-entry-title">Add Alt Word Entry</h3>
+                <button class="modal-close" id="awr-entry-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="awr-entry-fields">
+                    <div class="awr-field-row">
+                        <label class="awr-label" for="awr-original-input">Original word / phrase</label>
+                        <input type="text" id="awr-original-input" class="awr-text-input" placeholder="e.g. Worcestershire">
+                    </div>
+                    <div class="awr-field-row">
+                        <label class="awr-label" for="awr-replacement-input">Replacement word / phrase</label>
+                        <input type="text" id="awr-replacement-input" class="awr-text-input" placeholder="e.g. Wooster-sher">
+                    </div>
+                    <div class="awr-preview-section">
+                        <div class="awr-preview-row">
+                            <div class="awr-preview-field">
+                                <label class="awr-label" for="awr-preview-engine">TTS Engine</label>
+                                <select id="awr-preview-engine" class="awr-select">
+                                    <option value="kokoro">Kokoro</option>
+                                    <option value="chatterbox_turbo_local">Chatterbox</option>
+                                    <option value="chatterbox_turbo_api">Chatterbox API</option>
+                                    <option value="voxcpm_local">VoxCPM 1.5</option>
+                                    <option value="pocket_tts">Pocket TTS · Clone</option>
+                                    <option value="pocket_tts_preset">Pocket TTS · Preset</option>
+                                    <option value="qwen3_custom">Qwen3-TTS</option>
+                                    <option value="qwen3_clone">Qwen3-TTS · Clone</option>
+                                </select>
+                            </div>
+                            <div class="awr-preview-field awr-preview-field-voice">
+                                <label class="awr-label" for="awr-preview-voice">Voice</label>
+                                <select id="awr-preview-voice" class="awr-select">
+                                    <option value="">-- Select voice --</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="awr-preview-buttons">
+                            <button class="btn btn-sm btn-secondary" id="awr-play-original" disabled>▶ Play Original</button>
+                            <button class="btn btn-sm btn-secondary" id="awr-play-replacement" disabled>▶ Play Replacement</button>
+                            <span class="awr-preview-status" id="awr-preview-status"></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" id="awr-entry-cancel">Cancel</button>
+                <button class="btn btn-primary" id="awr-entry-ok">OK</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/main.js?v=23"></script>
     <script src="/static/js/queue.js?v=3"></script>
-    <script src="/static/js/library.js?v=28"></script>
+    <script src="/static/js/library.js?v=31"></script>
     <script src="/static/js/voice-manager.js?v=12"></script>
     <script src="/static/js/settings.js?v=7"></script>
 </body>
