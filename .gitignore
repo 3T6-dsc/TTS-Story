@@ -24,8 +24,6 @@ static/audio/*
 static/samples/*
 !static/samples/.gitkeep
 
-# Config
-config.json
 
 # IDE
 .vscode/
