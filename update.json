@@ -9,15 +9,7 @@
     {
       "method": "shell.run",
       "params": {
-        "message": "setup.bat",
-        "on": "{{platform === 'win32'}}"
-      }
-    },
-    {
-      "method": "shell.run",
-      "params": {
-        "message": "chmod +x setup.sh && ./setup.sh",
-        "on": "{{platform !== 'win32'}}"
+        "message": "{{os.platform() === 'win32' ? 'setup.bat' : 'chmod +x setup.sh && ./setup.sh'}}"
       }
     }
   ]

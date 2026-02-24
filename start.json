@@ -4,15 +4,7 @@
     {
       "method": "shell.run",
       "params": {
-        "message": "run.bat",
-        "on": "{{platform === 'win32'}}"
-      }
-    },
-    {
-      "method": "shell.run",
-      "params": {
-        "message": "chmod +x run.sh && ./run.sh",
-        "on": "{{platform !== 'win32'}}"
+        "message": "{{os.platform() === 'win32' ? 'run.bat' : 'chmod +x run.sh && ./run.sh'}}"
       }
     },
     {
