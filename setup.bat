@@ -260,8 +260,8 @@ echo IndexTTS uses its own isolated venv to avoid dependency conflicts.
 set "INDEX_TTS_DIR=%~dp0engines\index-tts"
 REM Strip trailing backslash if present
 if "%INDEX_TTS_DIR:~-1%"=="\" set "INDEX_TTS_DIR=%INDEX_TTS_DIR:~0,-1%"
-if exist "%INDEX_TTS_DIR%\.venv\Scripts\python.exe" (
-    echo IndexTTS venv already present. Skipping clone and sync.
+if exist "%INDEX_TTS_DIR%\.indextts_ready" (
+    echo IndexTTS already set up. Skipping clone and sync.
     goto :AfterIndexTTS
 )
 where git >nul 2>&1
@@ -269,8 +269,8 @@ if errorlevel 1 (
     echo WARNING: git not found. Skipping IndexTTS setup.
     echo To install IndexTTS manually:
     echo   1. git clone https://github.com/index-tts/index-tts.git engines\index-tts
-    echo   2. cd engines\index-tts ^&^& uv sync --extra webui
-    echo   3. Download model: uv tool run huggingface-cli download IndexTeam/IndexTTS-2 --local-dir=checkpoints
+    echo   2. cd engines\index-tts ^&^& uv sync
+    echo   3. Download model: uv run huggingface-cli download IndexTeam/IndexTTS-2 --local-dir=checkpoints
     goto :AfterIndexTTS
 )
 where uv >nul 2>&1
@@ -288,7 +288,7 @@ if not errorlevel 1 (
         if errorlevel 1 (
             echo WARNING: Failed to install uv. Skipping IndexTTS setup.
             echo Install uv manually from https://docs.astral.sh/uv/ then run:
-            echo   cd engines\index-tts ^&^& uv sync --extra webui
+            echo   cd engines\index-tts ^&^& uv sync
             goto :AfterIndexTTS
         )
         set "UV_EXE=python"
@@ -316,16 +316,19 @@ if not exist "%INDEX_TTS_DIR%\pyproject.toml" (
     set "GIT_LFS_SKIP_SMUDGE=0"
 )
 echo Installing IndexTTS dependencies (this may take several minutes)...
+echo Note: Skipping deepspeed extra - it cannot build on Windows without special CUDA tooling.
 pushd "%INDEX_TTS_DIR%"
-%UV_EXE% %UV_ARGS% sync --extra webui
+%UV_EXE% %UV_ARGS% sync
 set "INDEX_TTS_RESULT=!errorlevel!"
 popd
 if "!INDEX_TTS_RESULT!" NEQ "0" (
     echo WARNING: IndexTTS dependency install failed.
-    echo Try manually: cd engines\index-tts ^&^& uv sync --extra webui
+    echo Try manually: cd engines\index-tts ^&^& uv sync
 ) else (
     echo IndexTTS environment ready.
     echo Model weights will be downloaded automatically on first use (~2-4 GB).
+    echo Note: deepspeed was skipped. IndexTTS will run in standard mode.
+    echo. > "%INDEX_TTS_DIR%\.indextts_ready"
 )
 :AfterIndexTTS
 
@@ -460,9 +463,9 @@ pause
 goto :EOF
 
 :RunUvSync
-REM Subroutine: cd into %1 and run uv sync --extra webui, return errorlevel
+REM Subroutine: cd into %1 and run uv sync --all-extras, return errorlevel
 cd /d "%~1"
-%UV_EXE% %UV_ARGS% sync --extra webui
+%UV_EXE% %UV_ARGS% sync --all-extras
 exit /b %errorlevel%
 
 :InstallVCRedist
