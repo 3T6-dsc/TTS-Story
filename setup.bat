@@ -328,7 +328,7 @@ if "!INDEX_TTS_RESULT!" NEQ "0" (
     echo IndexTTS environment ready.
     echo Model weights will be downloaded automatically on first use (~2-4 GB).
     echo Note: deepspeed was skipped. IndexTTS will run in standard mode.
-    echo. > "%INDEX_TTS_DIR%\.indextts_ready"
+    type nul > "%INDEX_TTS_DIR%\.indextts_ready"
 )
 :AfterIndexTTS
 
