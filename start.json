@@ -4,7 +4,15 @@
     {
       "method": "shell.run",
       "params": {
-        "message": "if [ -f run.sh ]; then chmod +x run.sh && ./run.sh; else if [ -f run.bat ]; then ./run.bat; fi; fi"
+        "message": "run.bat",
+        "on": "{{platform === 'win32'}}"
+      }
+    },
+    {
+      "method": "shell.run",
+      "params": {
+        "message": "chmod +x run.sh && ./run.sh",
+        "on": "{{platform !== 'win32'}}"
       }
     },
     {

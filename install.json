@@ -9,19 +9,15 @@
     {
       "method": "shell.run",
       "params": {
-        "message": "if [ -f setup.sh ]; then chmod +x setup.sh && ./setup.sh; else if [ -f setup.bat ]; then ./setup.bat; fi; fi"
+        "message": "setup.bat",
+        "on": "{{platform === 'win32'}}"
       }
     },
     {
       "method": "shell.run",
       "params": {
-        "message": "sleep 5"
-      }
-    },
-    {
-      "method": "shell.run",
-      "params": {
-        "message": "if [ -f run.sh ]; then chmod +x run.sh; fi"
+        "message": "chmod +x setup.sh && ./setup.sh",
+        "on": "{{platform !== 'win32'}}"
       }
     }
   ]
