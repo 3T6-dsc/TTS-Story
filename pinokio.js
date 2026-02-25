@@ -8,7 +8,7 @@ module.exports = {
   menu: async (kernel, info) => {
     // Check installation status
     let installing = info.running("install.json")
-    let installed = info.exists("env")
+    let installed = info.exists("venv")
     
     if (installing) {
       return [{

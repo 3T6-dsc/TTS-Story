@@ -101,5 +101,3 @@ echo.
 
 REM Start the application
 python app.py
-
-pause
