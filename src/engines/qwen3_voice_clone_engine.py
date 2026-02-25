@@ -164,6 +164,14 @@ class Qwen3VoiceCloneEngine(TtsEngineBase):
         # Group non-consecutive same-speaker segments together so the model
         # processes all chunks for one voice before switching to the next,
         # avoiding repeated prompt re-encoding on every speaker switch.
+        # Stamp each segment with its narrative order_index before any grouping
+        # so filenames always reflect playback order regardless of processing order.
+        _order = 0
+        for seg in segments:
+            seg["_chunk_order_start"] = _order
+            _order += len(seg.get("chunks") or [])
+        total_chunks_count = _order
+
         if group_by_speaker and len(segments) > 1:
             seen: List[str] = []
             by_spk: Dict[str, List] = {}
@@ -175,8 +183,7 @@ class Qwen3VoiceCloneEngine(TtsEngineBase):
                 by_spk[spk].append(seg)
             segments = [seg for spk in seen for seg in by_spk[spk]]
 
-        files: List[str] = []
-        chunk_index = 0
+        files: List[Optional[str]] = [None] * total_chunks_count
         for seg_idx, segment in enumerate(segments):
             speaker = segment["speaker"]
             chunks = segment["chunks"]
@@ -224,7 +231,8 @@ class Qwen3VoiceCloneEngine(TtsEngineBase):
 
             try:
                 for chunk_idx, chunk_text in enumerate(chunks):
-                    output_path = output_dir / f"chunk_{chunk_index:04d}.wav"
+                    order_index = segment["_chunk_order_start"] + chunk_idx
+                    output_path = output_dir / f"chunk_{order_index:04d}.wav"
                     wavs, sr = self.model.generate_voice_clone(
                         text=chunk_text,
                         language=language or "Auto",
@@ -236,8 +244,7 @@ class Qwen3VoiceCloneEngine(TtsEngineBase):
                     self._sample_rate = int(sr)
                     audio = self.post_processor.apply_post_pipeline(audio, int(sr), fx_settings)
                     sf.write(str(output_path), audio, int(sr))
-                    files.append(str(output_path))
-                    chunk_index += 1
+                    files[order_index] = str(output_path)
                     if callable(progress_cb):
                         progress_cb()
                     if callable(chunk_cb):
@@ -246,13 +253,14 @@ class Qwen3VoiceCloneEngine(TtsEngineBase):
                             "text": chunk_text,
                             "segment_index": seg_idx,
                             "chunk_index": chunk_idx,
+                            "order_index": order_index,
                         }
                         chunk_cb(chunk_idx, chunk_meta, str(output_path))
             finally:
                 if temp_prompt:
                     Path(temp_prompt).unlink(missing_ok=True)
 
-        return files
+        return [path for path in files if path]
 
     def cleanup(self) -> None:  # pragma: no cover
         logger.info("Cleaning up Qwen3 Voice Clone engine resources")

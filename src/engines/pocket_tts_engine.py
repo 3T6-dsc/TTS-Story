@@ -134,6 +134,14 @@ class PocketTTSEngine(TtsEngineBase):
         # Group non-consecutive same-speaker segments together so the voice
         # state cache stays hot — all chunks for one speaker run back-to-back
         # before switching to the next voice.
+        # Stamp each segment with its narrative order_index before any grouping
+        # so filenames always reflect playback order regardless of processing order.
+        _order = 0
+        for seg in segments:
+            seg["_chunk_order_start"] = _order
+            _order += len(seg.get("chunks") or [])
+        total_chunks_count = _order
+
         if group_by_speaker and len(segments) > 1:
             seen: List[str] = []
             by_spk: Dict[str, List] = {}
@@ -145,7 +153,7 @@ class PocketTTSEngine(TtsEngineBase):
                 by_spk[spk].append(seg)
             segments = [seg for spk in seen for seg in by_spk[spk]]
 
-        files: List[Optional[str]] = []
+        files: List[Optional[str]] = [None] * total_chunks_count
         chunk_index = 0
         effective_workers = max(1, min(8, int(parallel_workers or 1)))
         if effective_workers > 1 and not self._explicit_num_threads:
@@ -175,9 +183,10 @@ class PocketTTSEngine(TtsEngineBase):
             fx_settings = VoiceFXSettings.from_payload(assignment.fx_payload)
 
             for chunk_idx, chunk_text in enumerate(chunks):
-                output_path = output_dir / f"chunk_{chunk_index:04d}.wav"
+                order_index = segment["_chunk_order_start"] + chunk_idx
+                output_path = output_dir / f"chunk_{order_index:04d}.wav"
                 tasks.append({
-                    "chunk_index": chunk_index,
+                    "chunk_index": order_index,
                     "segment_index": seg_idx,
                     "speaker": speaker,
                     "chunk_text": chunk_text,
@@ -191,7 +200,7 @@ class PocketTTSEngine(TtsEngineBase):
         if not tasks:
             return []
 
-        files = [None] * len(tasks)
+        files = [None] * total_chunks_count
 
         if effective_workers == 1:
             for task in tasks:
