@@ -35,6 +35,7 @@ PYTHON_MINOR=$(python3 -c 'import sys; print(sys.version_info.minor)')
 if [ "$PYTHON_MAJOR" -lt 3 ] || ([ "$PYTHON_MAJOR" -eq 3 ] && [ "$PYTHON_MINOR" -lt 9 ]); then
     echo "ERROR: Python 3.9 or higher is required. Found: $PYTHON_VERSION"
     exit 1
+fi
 
 # 1b/12 Check and install git if not present
 echo
@@ -56,11 +57,10 @@ if ! command -v git >/dev/null 2>&1; then
     fi
 else
     echo "Git is installed: $(git --version)"
+fi
 
 # Fix for git dubious ownership warning
 git config --global --add safe.directory "*" 2>/dev/null || true
-fi
-fi
 
 # Check and install python3-venv if not present
 echo
@@ -252,19 +252,7 @@ fi
 # 9/12 Install optional performance extras
 echo
 echo "[9/12] Installing optional performance extras..."
-echo "- flash-attn (Qwen3 speedup)"
 echo "- hf_xet (faster Hugging Face downloads)"
-
-if [ "$HAS_NVIDIA" -eq 1 ]; then
-    # Try to install flash-attn for Qwen3 speedup
-    if pip install flash-attn --no-build-isolation 2>/dev/null; then
-        echo "flash-attn installed successfully!"
-    else
-        echo "WARNING: flash-attn install failed. Qwen3 will use eager attention (slower)."
-    fi
-else
-    echo "CPU-only system detected. Skipping flash-attn install."
-fi
 
 pip install hf_xet || echo "WARNING: hf_xet install failed. Hugging Face downloads may be slower."
 

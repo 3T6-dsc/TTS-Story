@@ -3726,9 +3726,9 @@ async function applyProjectState(project) {
     const qwenDefaultInstruct = document.getElementById('qwen3-default-instruct');
     if (qwenDefaultInstruct) qwenDefaultInstruct.value = project.qwen_default_instruct || '';
     const splitChapters = document.getElementById('split-chapters-checkbox');
-    if (splitChapters) splitChapters.checked = !!project.split_chapters;
+    if (splitChapters) splitChapters.checked = project.split_chapters != null ? !!project.split_chapters : splitChapters.defaultChecked;
     const fullStory = document.getElementById('full-story-checkbox');
-    if (fullStory) fullStory.checked = !!project.full_story;
+    if (fullStory) fullStory.checked = project.full_story != null ? !!project.full_story : fullStory.defaultChecked;
     const heading = document.getElementById('custom-heading-input');
     if (heading) heading.value = project.custom_heading || '';
     const projectNameInput = document.getElementById('project-name-input');

@@ -337,81 +337,7 @@ echo Try manually: cd engines\index-tts ^&^& uv sync
 REM Optional performance extras (best-effort)
 echo.
 echo [11/12] Installing optional performance extras...
-echo - flash-attn (Qwen3 speedup)
 echo - hf_xet (faster Hugging Face downloads)
-if "%HAS_NVIDIA%"=="0" (
-    echo CPU-only system detected. Skipping flash-attn install.
-) else (
-    python -c "import torch" >nul 2>&1
-    if errorlevel 1 (
-        echo WARNING: torch not available in this environment. Skipping flash-attn install.
-    ) else (
-        if exist "%ProgramFiles(x86)%\Microsoft Visual Studio\2019\BuildTools\VC\Auxiliary\Build\vcvars64.bat" (
-            echo Using MSVC 2019 toolchain for CUDA compatibility...
-            call "%ProgramFiles(x86)%\Microsoft Visual Studio\2019\BuildTools\VC\Auxiliary\Build\vcvars64.bat" >nul 2>&1
-        )
-        where cl >nul 2>&1
-        if errorlevel 1 (
-            set "VS_INSTALL_DIR="
-            set "VSWHERE_EXE=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
-            if exist "%VSWHERE_EXE%" (
-                for /f "usebackq delims=" %%I in (`"%VSWHERE_EXE%" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -version "[16.0,17.0)" -property installationPath`) do (
-                    set "VS_INSTALL_DIR=%%I"
-                )
-                if "!VS_INSTALL_DIR!"=="" (
-                    for /f "usebackq delims=" %%I in (`"%VSWHERE_EXE%" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do (
-                        set "VS_INSTALL_DIR=%%I"
-                    )
-                )
-            )
-            if "!VS_INSTALL_DIR!"=="" (
-                for %%D in (
-                    "%ProgramFiles(x86)%\Microsoft Visual Studio\2019\BuildTools"
-                    "%ProgramFiles(x86)%\Microsoft Visual Studio\2022\BuildTools"
-                    "%ProgramFiles(x86)%\Microsoft Visual Studio\2022\Community"
-                    "%ProgramFiles(x86)%\Microsoft Visual Studio\2022\Professional"
-                    "%ProgramFiles(x86)%\Microsoft Visual Studio\2022\Enterprise"
-                    "%ProgramFiles(x86)%\Microsoft Visual Studio\2026\BuildTools"
-                    "%ProgramFiles(x86)%\Microsoft Visual Studio\2026\Community"
-                    "%ProgramFiles(x86)%\Microsoft Visual Studio\2026\Professional"
-                    "%ProgramFiles(x86)%\Microsoft Visual Studio\2026\Enterprise"
-                    "%ProgramFiles%\Microsoft Visual Studio\18\Community"
-                    "%ProgramFiles%\Microsoft Visual Studio\18\BuildTools"
-                ) do (
-                    if exist "%%~D\VC\Auxiliary\Build\vcvars64.bat" (
-                        set "VS_INSTALL_DIR=%%~D"
-                    )
-                )
-            )
-            if not "!VS_INSTALL_DIR!"=="" (
-                if exist "!VS_INSTALL_DIR!\VC\Auxiliary\Build\vcvars64.bat" (
-                    echo Found MSVC Build Tools. Initializing build environment...
-                    call "!VS_INSTALL_DIR!\VC\Auxiliary\Build\vcvars64.bat" >nul 2>&1
-                )
-            )
-        )
-        where cl >nul 2>&1
-        if errorlevel 1 (
-            echo WARNING: MSVC build tools not found. Skipping flash-attn install.
-            echo To install MSVC Build Tools manually, download:
-            echo https://aka.ms/vs/17/release/vs_buildtools.exe
-            echo Then select "Desktop development with C++" and install.
-        ) else (
-            pip install wheel
-            if errorlevel 1 (
-                echo WARNING: Failed to install wheel. Skipping flash-attn install.
-            ) else (
-            set "DISTUTILS_USE_SDK=1"
-            set "MSSdk=1"
-            REM flash-attn needs torch available; disable build isolation to avoid missing torch in build env
-            pip install flash-attn --no-build-isolation
-            if errorlevel 1 (
-                echo WARNING: flash-attn install failed. Qwen3 will use eager attention ^(slower^).
-            )
-            )
-        )
-    )
-)
 pip install hf_xet
 if errorlevel 1 (
     echo WARNING: hf_xet install failed. Hugging Face downloads may be slower.
@@ -461,7 +387,6 @@ echo 1. If espeak-ng is not installed, install it now
 echo 2. Run: run.bat
 echo 3. Open browser to: http://localhost:5000
 echo.
-pause
 goto :EOF
 
 :RunUvSync

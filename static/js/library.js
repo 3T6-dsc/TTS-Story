@@ -410,7 +410,26 @@ function formatSectionLabel(section, fallbackLabel) {
 function renderChapterControls(item) {
     const sections = item.book_mode && item.books?.length ? item.books : item.chapters;
     if (!sections || sections.length <= 1) {
-        return '';
+        if (!item.has_chunks) return '';
+        // Single-chapter or no chapters but chunk data exists — render just the review button
+        const reviewAllButton = `
+            <button
+                class="btn btn-secondary btn-xs chapter-pill chapter-review-all"
+                type="button"
+                data-review-all="true"
+                data-job-id="${item.job_id}"
+                data-full-story-path="${item.full_story?.relative_path || ''}"
+            >
+                Review Chunks
+            </button>
+        `;
+        return `
+            <div class="chapter-controls" data-job-id="${item.job_id}">
+                <div class="chapter-pill-container">
+                    ${reviewAllButton}
+                </div>
+            </div>
+        `;
     }
 
     const label = item.book_mode ? 'Books' : 'Chapters';
