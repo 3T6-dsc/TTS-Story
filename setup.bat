@@ -398,8 +398,14 @@ exit /b %errorlevel%
 :InstallVCRedist
 echo.
 echo Installing Microsoft Visual C++ Redistributable...
-set "VC_REDIST_URL=https://aka.ms/vs/16/release/vc_redist.x64.exe"
+set "VC_REDIST_URL=https://aka.ms/vs/17/release/vc_redist.x64.exe"
 set "VC_REDIST_EXE=%TEMP%\vc_redist.x64.exe"
+REM Check if VC++ 2015-2022 x64 is already installed (any version >= 14.0)
+powershell -NoLogo -NoProfile -Command "exit $(if (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64' -ErrorAction SilentlyContinue) { 0 } elseif (Get-ChildItem 'HKLM:\SOFTWARE\Classes\Installer\Dependencies' -ErrorAction SilentlyContinue | Where-Object { (Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue).DisplayName -match 'Visual C\+\+ 201[5-9]|Visual C\+\+ 202[0-9]' }) { 0 } else { 1 })" >nul 2>&1
+if not errorlevel 1 (
+    echo Visual C++ Redistributable already installed. Skipping.
+    goto :EOF
+)
 powershell -NoLogo -NoProfile -Command "$ProgressPreference='SilentlyContinue'; [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $url='%VC_REDIST_URL%'; try { Invoke-WebRequest -Uri $url -OutFile '%VC_REDIST_EXE%' -UseBasicParsing -ErrorAction Stop } catch { try { Start-BitsTransfer -Source $url -Destination '%VC_REDIST_EXE%' -ErrorAction Stop } catch { Write-Error $_.Exception.Message; exit 1 } }" >nul 2>&1
 if errorlevel 1 (
     echo WARNING: Failed to download Visual C++ Redistributable.
@@ -407,8 +413,13 @@ if errorlevel 1 (
     goto :EOF
 )
 "%VC_REDIST_EXE%" /install /quiet /norestart
-if errorlevel 1 (
-    echo WARNING: Visual C++ Redistributable install failed.
+set "VC_ERR=%errorlevel%"
+if "%VC_ERR%"=="1638" (
+    echo Visual C++ Redistributable already installed (newer version present^).
+) else if "%VC_ERR%"=="0" (
+    echo Visual C++ Redistributable installed successfully.
+) else (
+    echo WARNING: Visual C++ Redistributable install failed (code %VC_ERR%^).
     echo You may need to install manually from: %VC_REDIST_URL%
 )
 goto :EOF
