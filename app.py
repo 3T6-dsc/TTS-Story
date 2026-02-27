@@ -7135,6 +7135,7 @@ def restore_library_item_to_review(job_id):
 
         # Prefer chunks from chunks_metadata.json if available (has text/voice data)
         chunks = chunks_meta.get("chunks") or []
+        chunks.sort(key=lambda c: c.get("order_index") if c.get("order_index") is not None else float('inf'))
 
         # If no chunks in metadata, build from manifest
         if not chunks and manifest:
@@ -7211,6 +7212,7 @@ def get_library_item_chunks(job_id):
             chunks_meta = json.load(handle)
 
         chunks = chunks_meta.get("chunks") or []
+        chunks.sort(key=lambda c: c.get("order_index") if c.get("order_index") is not None else float('inf'))
         for chunk in chunks:
             rel_file = chunk.get("relative_file")
             if rel_file:
@@ -7425,6 +7427,14 @@ def _rebuild_review_manifest_from_chunks(job_id: str, job_dir: Path, force_rebui
     all_full_story_chunks: List[str] = []
 
     if chunk_sources:
+        # Build lookup from original chunks_metadata keyed by normalised relative_file
+        # so speaker/text/voice data is preserved during force_rebuild.
+        original_by_rel: Dict[str, Dict[str, Any]] = {}
+        for orig in chunks:
+            rel = (orig.get("relative_file") or "").replace("\\", "/")
+            if rel:
+                original_by_rel[rel] = orig
+
         rebuilt_chunks = []
         order_index = 0
         for source in chunk_sources:
@@ -7436,13 +7446,20 @@ def _rebuild_review_manifest_from_chunks(job_id: str, job_dir: Path, force_rebui
                 chunk_files.append(rel_file)
                 chunk_match = re.search(r"(\d+)", chunk_path.stem)
                 chunk_index = int(chunk_match.group(1)) if chunk_match else 0
-                rebuilt_chunks.append({
+                orig = original_by_rel.get(rel_file) or {}
+                record = {
                     "id": f"{chapter_index}-{chunk_index}-{order_index}",
                     "order_index": order_index,
                     "chapter_index": chapter_index,
                     "chunk_index": chunk_index,
                     "relative_file": rel_file,
-                })
+                }
+                # Carry over text/speaker/voice data from original if present
+                for field in ("speaker", "text", "engine", "emotion", "voice_assignment", "voice_label",
+                              "duration_seconds", "regenerated_at", "regen_status", "file_path"):
+                    if field in orig:
+                        record[field] = orig[field]
+                rebuilt_chunks.append(record)
                 order_index += 1
 
             all_full_story_chunks.extend(chunk_files)
