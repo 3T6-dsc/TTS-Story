@@ -1,16 +1,24 @@
-# Current Updates and Notes - updated 02-23-2026
+## ☕ Support Ongoing Development
+
+If you enjoy TTS-Story and my other open-source projects, consider supporting continued development! Every contribution helps keep things moving and motivates new features, bug fixes, and improvements across all my projects.
+
+👉 **[Buy me a pizza (or whatever you'd like to contribute)](https://xerophayze.com/store.html?category=patron+support)**
+
+Thank you — it genuinely means a lot! 🙏
+
+---
+
+# Current Updates and Notes - updated 03-06-2026
+- Added **Auto Assign** button to the speaker voice assignment panel — fuzzy-matches voice sample names to detected speaker names and proposes assignments in a modal. Includes an adjustable similarity threshold slider (10–100%) that re-evaluates and updates all matches in real time.
+- **Bug fix**: Voice sample assignments (reference-select) no longer reset to "Inherit from global" when text is re-analyzed or section headers are changed. Selections are now persisted in `turboSelectionState` across all re-renders.
+- **Bug fix**: The **Quick Test** button in the speaker editor now plays the selected voice sample file directly with pitch/speed applied — instead of generating new audio — for all voice-cloning engines (Chatterbox, Pocket TTS Clone, IndexTTS, VoxCPM, etc.). Preset-voice engines (Kokoro, KittenTTS) still generate a preview as before.
+- Added **Clear Queue** button in the Job Queue tab — removes all non-processing jobs from the database and disk in one click, with a confirmation prompt and a summary of how many were removed or skipped.
+
+### Previous Updates
 - Added **IndexTTS** as a new TTS engine — zero-shot voice cloning by Bilibili Research. High-quality GPU-accelerated synthesis with a single reference audio clip. Supports multi-chapter batch mode that pre-collects all chapters into a single subprocess call, eliminating per-chapter model-reload overhead (~30–60s per chapter saved).
 - **Bug fix**: Pausing and resuming a job no longer loses chapter/title data collected before the pause. The partial chapter manifest is now saved to disk on pause and restored on resume, so all chapters are present in the library when the job finishes.
 - **Bug fix**: Chunk timing history is now preserved across pause/resume cycles. Historical chunk timestamps are restored on resume so the live timing chart and final metrics reflect the full generation run, not just the post-resume portion.
 - Added **Generation Metrics** button to library items — shows a modal with full timing stats (started, completed, total time, avg/min/max chunk time) and a chunk duration line chart for completed jobs.
-
-### Previous Updates
-- **Bug fix**: Deleting a job from the queue no longer removes its audio files if the job was already completed — completed jobs remain accessible in the library.
-- Added **KittenTTS** as a new CPU-only TTS engine — ultra-lightweight (<25MB), no GPU required, 8 built-in voices (Bella, Jasper, Luna, Bruno, Rosie, Hugo, Kiki, Leo). Selectable from the engine dropdown with its own settings panel.
-- Added **Alternate Word Registry** — specify words that TTS engines mispronounce and provide phonetically equivalent substitutes. Replacements are applied automatically before synthesis on every chunk.
-- Added **per-engine configurable chunk size** in Settings → Engine Settings. Each engine now has its own character chunk size slider so you can tune the text split size independently (e.g. smaller chunks for CPU engines, larger for GPU engines).
-- **Bug fix**: Speaker profile prompt was missing from the Gemini pre-processing flow — restored.
-- **Updated** Kokoro prompt preset to "Strict Book Narration V1" with improved instruction adherence for audiobook conversion.
 
 # TTS-Story
 
