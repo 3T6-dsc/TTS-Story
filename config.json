@@ -60,7 +60,7 @@
   "llm_local_chunk_size": 500,
   "llm_gemini_chunk_chapters": false,
   "llm_local_chunk_chapters": false,
-  "tts_engine": "chatterbox_turbo_local",
+  "tts_engine": "kokoro",
   "chatterbox_turbo_local_default_prompt": "",
   "chatterbox_turbo_local_temperature": 0.8,
   "chatterbox_turbo_local_top_p": 0.95,

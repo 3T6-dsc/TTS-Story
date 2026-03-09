@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -e
 
-REPO_URL="https://github.com/Xerophayze/TTS-Story.git"
+REPO_URL="https://github.com/3T6-dsc/TTS-Story.git"
 REPO_DIR="TTS-Story"
 
 echo "========================================"

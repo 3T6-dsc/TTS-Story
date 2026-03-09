@@ -1,7 +1,7 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
 
-set "REPO_URL=https://github.com/Xerophayze/TTS-Story.git"
+set "REPO_URL=https://github.com/3T6-dsc/TTS-Story.git"
 set "REPO_DIR=TTS-Story"
 set "GIT_INSTALLER_URL="
 set "GIT_INSTALLER=%TEMP%\git-installer.exe"
