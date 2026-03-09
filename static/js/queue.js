@@ -984,7 +984,7 @@ function displayQueue(data) {
                     ${job.status === 'failed' ?
                         `<div class="error-display">
                             <span class="error-text" title="${job.error || 'Unknown error'}">❌ Failed</span>
-                            ${job.error ? `<button class="btn-small btn-outline error-details-btn" onclick="showErrorDetails('${job.job_id}', '${(job.error || '').replace(/'/g, "\\'")}')" title="View Error Details">🔍 Details</button>` : ''}
+                            ${job.error ? `<button class="btn-small btn-outline error-details-btn" onclick="showErrorDetails('${job.job_id}', '${(job.error || '').replace(/'/g, '\\x27').replace(/"/g, '\\"')}')" title="View Error Details">🔍 Details</button>` : ''}
                         </div>` :
                         ''}
                     ${(job.status === 'processing' || job.status === 'queued') ?
@@ -1188,6 +1188,7 @@ function closeJobConsoleModal() {
 function showErrorDetails(jobId, errorMessage) {
     const modal = document.createElement('div');
     modal.className = 'modal-overlay';
+    const escapedError = errorMessage.replace(/'/g, '&#39;').replace(/"/g, '&quot;');
     modal.innerHTML = `
         <div class="modal error-details-modal" style="max-width: 600px;">
             <div class="modal-header">
@@ -1199,7 +1200,7 @@ function showErrorDetails(jobId, errorMessage) {
                     <h4>Job Status: Failed</h4>
                     <div class="error-message">
                         <strong>Error Message:</strong>
-                        <div class="error-text-full">${errorMessage}</div>
+                        <div class="error-text-full">${escapedError}</div>
                     </div>
                     <div class="error-suggestions">
                         <h5>Possible Solutions:</h5>
