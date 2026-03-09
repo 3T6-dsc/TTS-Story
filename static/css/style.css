@@ -5341,3 +5341,236 @@ audio {
     color: var(--danger-color, #ef4444);
     padding: 8px 0;
 }
+
+/* Console Modal Styles */
+.console-container {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.console-status {
+    padding: 12px;
+    background: rgba(99, 102, 241, 0.1);
+    border-radius: 8px;
+    border: 1px solid rgba(99, 102, 241, 0.2);
+}
+
+.activity-text {
+    color: var(--primary-color);
+    font-weight: 600;
+}
+
+.console-logs {
+    flex: 1;
+}
+
+.console-logs h4 {
+    margin: 0 0 12px 0;
+    color: var(--text-color);
+    font-size: 1rem;
+}
+
+.log-container {
+    max-height: 400px;
+    overflow-y: auto;
+    background: var(--bg-color);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 12px;
+    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+    font-size: 0.85rem;
+}
+
+.log-entry {
+    display: flex;
+    margin-bottom: 6px;
+    padding: 4px 0;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+}
+
+.log-entry:last-child {
+    border-bottom: none;
+}
+
+.log-timestamp {
+    color: var(--text-muted);
+    margin-right: 8px;
+    font-size: 0.8rem;
+}
+
+.log-level {
+    margin-right: 8px;
+    font-weight: 600;
+    min-width: 60px;
+}
+
+.log-message {
+    flex: 1;
+    word-break: break-word;
+}
+
+.log-info .log-level {
+    color: var(--primary-color);
+}
+
+.log-warning .log-level {
+    color: var(--warning-color);
+}
+
+.log-error .log-level {
+    color: var(--danger-color);
+}
+
+.log-success .log-level {
+    color: var(--success-color);
+}
+
+.log-error .log-message {
+    color: var(--danger-color);
+}
+
+.log-warning .log-message {
+    color: var(--warning-color);
+}
+
+.log-success .log-message {
+    color: var(--success-color);
+}
+
+.console-loading,
+.console-error,
+.no-logs {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--text-muted);
+}
+
+.console-error {
+    color: var(--danger-color);
+}
+
+.btn-info {
+    background: rgba(59, 130, 246, 0.2);
+    color: #3b82f6;
+    border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+.btn-info:hover {
+    background: rgba(59, 130, 246, 0.3);
+    border-color: rgba(59, 130, 246, 0.5);
+}
+
+/* Error Display Styles */
+.error-display {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    align-items: flex-start;
+}
+
+.error-details-btn {
+    font-size: 0.75rem;
+    padding: 2px 6px;
+    border-color: var(--danger-color);
+    color: var(--danger-color);
+}
+
+.error-details-btn:hover {
+    background: rgba(239, 68, 68, 0.1);
+}
+
+.error-details-modal .modal-body {
+    max-height: 500px;
+    overflow-y: auto;
+}
+
+.error-details-content h4 {
+    color: var(--danger-color);
+    margin: 0 0 16px 0;
+    font-size: 1.1rem;
+}
+
+.error-message {
+    margin-bottom: 20px;
+}
+
+.error-text-full {
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid rgba(239, 68, 68, 0.2);
+    border-radius: 6px;
+    padding: 12px;
+    margin-top: 8px;
+    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+    font-size: 0.9rem;
+    color: var(--danger-color);
+    word-break: break-word;
+}
+
+.error-suggestions h5 {
+    margin: 0 0 12px 0;
+    color: var(--text-color);
+}
+
+.error-suggestions ul {
+    margin: 0;
+    padding-left: 20px;
+}
+
+.error-suggestions li {
+    margin-bottom: 6px;
+    color: var(--text-muted);
+}
+
+/* Enhanced status indicators */
+.status-badge {
+    position: relative;
+    padding-left: 24px;
+}
+
+.status-badge::before {
+    position: absolute;
+    left: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    content: '';
+}
+
+.status-queued::before {
+    background: var(--warning-color);
+}
+
+.status-processing::before {
+    background: var(--primary-color);
+    animation: pulse 2s infinite;
+}
+
+.status-completed::before {
+    background: var(--success-color);
+}
+
+.status-failed::before {
+    background: var(--danger-color);
+}
+
+.status-paused::before {
+    background: var(--text-muted);
+}
+
+@keyframes pulse {
+    0% {
+        opacity: 1;
+        transform: translateY(-50%) scale(1);
+    }
+    50% {
+        opacity: 0.7;
+        transform: translateY(-50%) scale(1.2);
+    }
+    100% {
+        opacity: 1;
+        transform: translateY(-50%) scale(1);
+    }
+}

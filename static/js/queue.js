@@ -982,7 +982,13 @@ function displayQueue(data) {
                         `<button class="btn-small btn-outline" onclick="deleteQueueJob('${job.job_id}')">Remove</button>` :
                         ''}
                     ${job.status === 'failed' ?
-                        `<span class="error-text" title="${job.error || 'Unknown error'}">Failed</span>` :
+                        `<div class="error-display">
+                            <span class="error-text" title="${job.error || 'Unknown error'}">❌ Failed</span>
+                            ${job.error ? `<button class="btn-small btn-outline error-details-btn" onclick="showErrorDetails('${job.job_id}', '${(job.error || '').replace(/'/g, "\\'")}')" title="View Error Details">🔍 Details</button>` : ''}
+                        </div>` :
+                        ''}
+                    ${(job.status === 'processing' || job.status === 'queued') ?
+                        `<button class="btn-small btn-info" onclick="openJobConsole('${job.job_id}')" title="Open Console">📋 Console</button>` :
                         ''}
                 </td>
             </tr>
@@ -1043,6 +1049,90 @@ function getStatusIcon(status) {
     }
 }
 
+// Open job console modal
+function openJobConsole(jobId) {
+    ensureJobConsoleModalHandlers();
+    
+    const modal = document.getElementById('job-console-modal');
+    const overlay = document.getElementById('job-console-modal-overlay');
+    const title = document.getElementById('job-console-modal-title');
+    const body = document.getElementById('job-console-modal-body');
+    
+    if (!modal || !overlay || !title || !body) {
+        console.error('Console modal elements not found');
+        return;
+    }
+    
+    title.textContent = `Console - Job ${jobId.substring(0, 8)}`;
+    body.innerHTML = '<div class="console-loading">Loading console...</div>';
+    
+    modal.classList.remove('hidden');
+    overlay.classList.remove('hidden');
+    
+    // Load console content
+    loadJobConsole(jobId);
+}
+
+// Load job console content
+async function loadJobConsole(jobId) {
+    try {
+        const response = await fetch(`/api/job-console/${jobId}`);
+        const data = await response.json();
+        
+        const body = document.getElementById('job-console-modal-body');
+        if (!body) return;
+        
+        if (data.success) {
+            let consoleHtml = '<div class="console-container">';
+            
+            // Job status and current activity
+            consoleHtml += `<div class="console-status">`;
+            consoleHtml += `<strong>Status:</strong> <span class="status-badge ${getStatusClass(data.status)}">${getStatusIcon(data.status)} ${data.status}</span><br>`;
+            consoleHtml += `<strong>Current Activity:</strong> <span class="activity-text">${data.current_activity || 'Idle'}</span><br>`;
+            consoleHtml += `<strong>Progress:</strong> ${data.progress || 'N/A'}`;
+            if (data.error) {
+                consoleHtml += `<br><strong>Error:</strong> <span class="error-text">${data.error}</span>`;
+            }
+            consoleHtml += `</div>`;
+            
+            // Console logs
+            if (data.logs && data.logs.length > 0) {
+                consoleHtml += `<div class="console-logs">`;
+                consoleHtml += `<h4>Console Output:</h4>`;
+                consoleHtml += `<div class="log-container">`;
+                data.logs.forEach(log => {
+                    const logClass = log.level === 'ERROR' ? 'log-error' : 
+                                   log.level === 'WARNING' ? 'log-warning' : 
+                                   log.level === 'SUCCESS' ? 'log-success' : 'log-info';
+                    consoleHtml += `<div class="log-entry ${logClass}">`;
+                    consoleHtml += `<span class="log-timestamp">[${log.timestamp}]</span> `;
+                    consoleHtml += `<span class="log-level">[${log.level}]</span> `;
+                    consoleHtml += `<span class="log-message">${log.message}</span>`;
+                    consoleHtml += `</div>`;
+                });
+                consoleHtml += `</div></div>`;
+            } else {
+                consoleHtml += `<div class="no-logs">No logs available</div>`;
+            }
+            
+            consoleHtml += `</div>`;
+            body.innerHTML = consoleHtml;
+            
+            // Auto-refresh for active jobs
+            if (data.status === 'processing' || data.status === 'queued') {
+                setTimeout(() => loadJobConsole(jobId), 2000);
+            }
+        } else {
+            body.innerHTML = `<div class="console-error">Error loading console: ${data.error}</div>`;
+        }
+    } catch (error) {
+        const body = document.getElementById('job-console-modal-body');
+        if (body) {
+            body.innerHTML = `<div class="console-error">Error loading console: ${error.message}</div>`;
+        }
+    }
+}
+
 function ensureJobDetailModalHandlers() {
     const overlay = document.getElementById('job-detail-modal-overlay');
     const closeBtn = document.getElementById('job-detail-modal-close');
@@ -1062,6 +1152,101 @@ function ensureJobDetailModalHandlers() {
     if (footerBtn && !footerBtn.dataset.bound) {
         footerBtn.addEventListener('click', closeJobDetailModal);
         footerBtn.dataset.bound = 'true';
+    }
+}
+
+function ensureJobConsoleModalHandlers() {
+    const overlay = document.getElementById('job-console-modal-overlay');
+    const closeBtn = document.getElementById('job-console-modal-close');
+    const footerBtn = document.getElementById('job-console-modal-close-btn');
+    if (overlay && !overlay.dataset.bound) {
+        overlay.addEventListener('click', (event) => {
+            if (event.target === overlay) {
+                closeJobConsoleModal();
+            }
+        });
+        overlay.dataset.bound = 'true';
+    }
+    if (closeBtn && !closeBtn.dataset.bound) {
+        closeBtn.addEventListener('click', closeJobConsoleModal);
+        closeBtn.dataset.bound = 'true';
+    }
+    if (footerBtn && !footerBtn.dataset.bound) {
+        footerBtn.addEventListener('click', closeJobConsoleModal);
+        footerBtn.dataset.bound = 'true';
+    }
+}
+
+function closeJobConsoleModal() {
+    const modal = document.getElementById('job-console-modal');
+    const overlay = document.getElementById('job-console-modal-overlay');
+    if (modal) modal.classList.add('hidden');
+    if (overlay) overlay.classList.add('hidden');
+}
+
+// Show error details modal
+function showErrorDetails(jobId, errorMessage) {
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay';
+    modal.innerHTML = `
+        <div class="modal error-details-modal" style="max-width: 600px;">
+            <div class="modal-header">
+                <h3>❌ Error Details - Job ${jobId.substring(0, 8)}</h3>
+                <button type="button" class="modal-close" onclick="this.closest('.modal-overlay').remove()">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="error-details-content">
+                    <h4>Job Status: Failed</h4>
+                    <div class="error-message">
+                        <strong>Error Message:</strong>
+                        <div class="error-text-full">${errorMessage}</div>
+                    </div>
+                    <div class="error-suggestions">
+                        <h5>Possible Solutions:</h5>
+                        <ul>
+                            <li>Check if the text format is correct (proper speaker tags)</li>
+                            <li>Verify voice assignments are valid</li>
+                            <li>Ensure sufficient disk space</li>
+                            <li>Try with a shorter text first</li>
+                            <li>Check if the selected TTS engine is available</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="this.closest('.modal-overlay').remove()">Close</button>
+                <button type="button" class="btn btn-primary" onclick="retryJob('${jobId}')">Retry Job</button>
+            </div>
+        </div>
+    `;
+    
+    modal.addEventListener('click', (event) => {
+        if (event.target === modal) {
+            modal.remove();
+        }
+    });
+    
+    document.body.appendChild(modal);
+}
+
+// Retry failed job
+async function retryJob(jobId) {
+    try {
+        const response = await fetch(`/api/job-retry/${jobId}`, {
+            method: 'POST'
+        });
+        const data = await response.json();
+        
+        if (data.success) {
+            // Close error modal
+            document.querySelector('.error-details-modal')?.closest('.modal-overlay')?.remove();
+            // Refresh queue
+            loadQueue();
+        } else {
+            alert('Failed to retry job: ' + data.error);
+        }
+    } catch (error) {
+        alert('Error retrying job: ' + error.message);
     }
 }
 
@@ -1222,67 +1407,76 @@ async function deleteQueueJob(jobId) {
 }
 
 function renderJobProgress(job) {
-    const total = job.total_chunks || 0;
-    const processed = Math.min(job.processed_chunks || 0, total || Infinity);
-    const percent = total > 0 ? Math.round((processed / total) * 100) : (job.status === 'completed' ? 100 : 0);
-    const chunkLabel = total ? `${processed} / ${total} chunk${total === 1 ? '' : 's'}` : 'Estimating…';
-    const etaLabel = formatEta(job.eta_seconds, job.status);
-    const chapterLabel = job.chapter_mode
-        ? `${job.chapter_count || '?'} chapter${(job.chapter_count || 0) === 1 ? '' : 's'} (per chapter merge)`
-        : 'Single output file';
-    const postTotal = Number(job.post_process_total || 0);
-    const postDone = Math.min(Number(job.post_process_done || 0), postTotal || Infinity);
-    const postPercent = Number.isFinite(Number(job.post_process_percent))
-        ? Math.max(0, Math.min(Math.round(Number(job.post_process_percent)), 100))
-        : (postTotal > 0 ? Math.round((postDone / postTotal) * 100) : 0);
-    const isFinishing = job.status === 'processing'
-        && total > 0
-        && processed >= total
-        && (job.eta_seconds === 0 || job.eta_seconds === null || typeof job.eta_seconds !== 'number');
-    const showPost = (postTotal > 0 && (job.post_process_active || postDone > 0)) || isFinishing;
-    const postLabel = postTotal > 0
-        ? `Post-processing ${postDone} / ${postTotal}`
-        : 'Post-processing…';
-    const postFillClass = postTotal > 0 ? 'progress-bar-fill' : 'progress-bar-fill indeterminate';
-    const interruptedChip = job.status === 'interrupted'
-        ? '<span class="review-chip warning">Interrupted</span>'
-        : '';
-    const resumeHint = job.status === 'interrupted' && Number.isFinite(Number(job.resume_from_chunk_index))
-        ? `<span class="review-chip muted">Resume from chunk ${Number(job.resume_from_chunk_index) + 1}</span>`
-        : '';
+    if (job.status === 'queued') {
+        return '<div class="queue-progress"><div class="activity-text">⏳ Waiting in queue</div></div>';
+    }
+    
+    if (job.status === 'processing') {
+        const progress = job.progress || {};
+        const current = progress.current || 0;
+        const total = progress.total || 1;
+        const percentage = Math.round((current / total) * 100);
+        
+        let activityText = '🔄 Processing';
+        if (progress.current_stage) {
+            activityText = getActivityDescription(progress.current_stage, progress);
+        }
+        
+        return `
+            <div class="queue-progress">
+                <div class="activity-text">${activityText}</div>
+                <div class="queue-progress-header">
+                    <span>${current}/${total} chunks</span>
+                    <span>${percentage}%</span>
+                </div>
+                <div class="progress-bar">
+                    <div class="progress-bar-fill" style="width: ${percentage}%"></div>
+                </div>
+                ${progress.eta ? `<div class="queue-progress-footer">ETA: ${progress.eta}</div>` : ''}
+            </div>
+        `;
+    }
+    
+    if (job.status === 'completed') {
+        return '<div class="queue-progress"><div class="activity-text">✅ Completed</div></div>';
+    }
+    
+    if (job.status === 'failed') {
+        return '<div class="queue-progress"><div class="activity-text error-text">❌ Failed</div></div>';
+    }
+    
+    if (job.status === 'paused') {
+        return '<div class="queue-progress"><div class="activity-text">⏸️ Paused</div></div>';
+    }
+    
+    return '<div class="queue-progress"><div class="activity-text">Unknown status</div></div>';
+}
 
-    return `
-        <div class="queue-progress">
-            <div class="queue-progress-header">
-                <span>${chunkLabel}</span>
-                <span>${etaLabel}</span>
-            </div>
-            <div class="progress-bar">
-                <div class="progress-bar-fill" style="width: ${Math.min(Math.max(percent, 0), 100)}%;"></div>
-            </div>
-            <div class="queue-progress-footer">
-                <span>${chapterLabel}</span>
-                <span>${job.status === 'completed' ? 'Done' : job.status}</span>
-            </div>
-            ${interruptedChip || resumeHint ? `
-                <div class="queue-progress-footer">
-                    <span>${interruptedChip}</span>
-                    <span>${resumeHint}</span>
-                </div>
-            ` : ''}
-            ${showPost ? `
-                <div class="queue-post-progress">
-                    <div class="queue-progress-header">
-                        <span>${postLabel}</span>
-                        <span>${postPercent}%</span>
-                    </div>
-                    <div class="progress-bar">
-                        <div class="${postFillClass}" style="width: ${Math.min(Math.max(postPercent, 0), 100)}%;"></div>
-                    </div>
-                </div>
-            ` : ''}
-        </div>
-    `;
+// Get human-readable activity description
+function getActivityDescription(stage, progress) {
+    const descriptions = {
+        'initializing': '🚀 Initializing job...',
+        'text_processing': '📝 Processing text...',
+        'voice_assignment': '🎭 Assigning voices...',
+        'chunk_generation': '🎙️ Generating audio chunks...',
+        'post_processing': '🔧 Post-processing audio...',
+        'merging': '🔗 Merging audio files...',
+        'finalizing': '✨ Finalizing output...',
+        'cleanup': '🧹 Cleaning up temporary files...'
+    };
+    
+    let description = descriptions[stage] || '🔄 Processing...';
+    
+    // Add specific details if available
+    if (stage === 'chunk_generation' && progress.current_chunk) {
+        description += ` (Chunk ${progress.current_chunk})`;
+    }
+    
+    if (stage === 'voice_assignment' && progress.current_speaker) {
+        description += ` (${progress.current_speaker})`;
+    }
+    
+    return description;
 }
 
 function formatEta(seconds, status) {
